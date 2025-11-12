@@ -1,0 +1,20 @@
+# Models package - Import all models here to ensure proper initialization
+from .database import Base, engine, SessionLocal, get_db
+from .user import User, UserRole
+from .order import Order, OrderStatus
+from .biometric import VoiceTemplate, FingerprintTemplate, VerificationLog, Delivery
+
+__all__ = [
+    "Base",
+    "engine",
+    "SessionLocal", 
+    "get_db",
+    "User",
+    "UserRole",
+    "Order",
+    "OrderStatus",
+    "VoiceTemplate",
+    "FingerprintTemplate",
+    "VerificationLog",
+    "Delivery"
+]
