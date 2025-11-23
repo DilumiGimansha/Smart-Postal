@@ -1,3 +1,4 @@
+
 # Web Framework
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
@@ -15,15 +16,17 @@ passlib[bcrypt]==1.7.4
 python-dotenv==1.0.0
 cryptography==41.0.7
 
-# Voice Processing
+# Voice Processing - Banking Grade with Real-World Robustness
 librosa==0.10.1
 soundfile==0.12.1
 numpy==1.24.3
 scipy==1.11.4
-# resemblyzer==0.1.1.dev0  # Requires webrtcvad which needs Visual C++ build tools
-speechbrain==0.5.16
+resemblyzer==0.1.4
+webrtcvad-wheels==2.0.14  # Pre-compiled wheels for Windows
 torch==2.1.0
 torchaudio==2.1.0
+pymysql==1.1.0
+noisereduce==3.0.3  # Advanced noise reduction for outdoor/noisy environments
 
 # AI Detection
 transformers==4.35.2

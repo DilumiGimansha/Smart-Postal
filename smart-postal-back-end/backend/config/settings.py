@@ -4,8 +4,8 @@ from typing import Optional
 
 class Settings(BaseSettings):
     # Application
-    APP_NAME: str
-    APP_VERSION: str
+    APP_NAME: str = "Voice-Fingerprint-Delivery-System"
+    APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
     ENVIRONMENT: str = "development"
     
@@ -30,10 +30,15 @@ class Settings(BaseSettings):
     ENCRYPTION_KEY: str = "your-encryption-key-32-bytes-long"
     
     # Voice Authentication
-    VOICE_SIMILARITY_THRESHOLD: float = 0.85
+    VOICE_SIMILARITY_THRESHOLD: float = 0.80  # Ensemble score threshold for verification
     MIN_VOICE_SAMPLES: int = 3
     MAX_VOICE_SAMPLES: int = 5
     VOICE_SAMPLE_DURATION: int = 5
+    
+    # Liveness Detection (Anti-Spoofing)
+    ENABLE_LIVENESS_FOR_ENROLLMENT: bool = False  # Less strict for enrollment
+    ENABLE_LIVENESS_FOR_VERIFICATION: bool = True  # Strict for verification
+    LIVENESS_THRESHOLD: float = 0.20  # 0.20 = lenient, 0.30 = balanced, 0.40 = strict
     
     # AI Detection
     AI_DETECTION_THRESHOLD: float = 0.90

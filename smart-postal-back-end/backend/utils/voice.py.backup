@@ -1,0 +1,120 @@
+import os
+import torch
+import torchaudio
+import numpy as np
+from loguru import logger
+from config.settings import get_settings
+import tempfile
+import shutil
+import urllib.request
+import zipfile
+from pathlib import Path
+
+settings = get_settings()
+
+class VoiceProcessor:
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(VoiceProcessor, cls).__new__(cls)
+            cls._instance.model = None
+            cls._instance.initialization_error = None
+        return cls._instance
+    
+    def _ensure_model_loaded(self):
+        """Load the voice model lazily"""
+        if self.model is not None or self.initialization_error is not None:
+            return
+            
+        try:
+            logger.info("Loading enterprise-grade voice verification model...")
+            
+            # Use a simpler but effective model - resemblyzer (speaker embedding)
+            from resemblyzer import VoiceEncoder
+            
+            self.model = VoiceEncoder()
+            logger.info("Voice verification model loaded successfully")
+            
+        except Exception as e:
+            error_msg = f"Failed to load voice model: {str(e)}"
+            logger.error(error_msg)
+            self.initialization_error = error_msg
+            self.model = None
+
+    async def process_audio(self, audio_file) -> np.ndarray:
+        """
+        Process uploaded audio file and return speaker embedding
+        """
+        self._ensure_model_loaded()
+        
+        if self.model is None:
+            raise RuntimeError(f"Voice model not initialized: {self.initialization_error}")
+        
+        # Create a temporary file to save the uploaded audio
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+            shutil.copyfileobj(audio_file.file, temp_audio)
+            temp_path = temp_audio.name
+
+        try:
+            from resemblyzer import preprocess_wav
+            
+            # Preprocess the audio
+            wav = preprocess_wav(temp_path)
+            
+            # Generate embedding
+            embedding = self.model.embed_utterance(wav)
+            
+            logger.info(f"Extracted voice embedding with shape: {embedding.shape}")
+            return embedding
+            
+        except Exception as e:
+            logger.error(f"Error processing audio: {str(e)}")
+            raise e
+        finally:
+            # Cleanup temp file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    def verify_voice(self, embedding1: np.ndarray, embedding2: np.ndarray) -> tuple[bool, float]:
+        """
+        Compare two voice embeddings using cosine similarity.
+        Resemblyzer embeddings are designed for speaker verification.
+        """
+        try:
+            # Ensure both are numpy arrays
+            if not isinstance(embedding1, np.ndarray):
+                embedding1 = np.array(embedding1)
+            if not isinstance(embedding2, np.ndarray):
+                embedding2 = np.array(embedding2)
+
+            # Calculate cosine similarity
+            # For resemblyzer, this is the standard approach
+            similarity = np.dot(embedding1, embedding2) / (
+                np.linalg.norm(embedding1) * np.linalg.norm(embedding2)
+            )
+            
+            # Ensure score is between 0 and 1
+            score = float(max(0.0, min(1.0, similarity)))
+            
+            # For resemblyzer, typical threshold is around 0.75-0.85
+            is_verified = score >= settings.VOICE_SIMILARITY_THRESHOLD
+            
+            logger.info(f"Voice similarity score: {score:.4f}, Threshold: {settings.VOICE_SIMILARITY_THRESHOLD}, Verified: {is_verified}")
+            
+            return is_verified, score
+            
+        except Exception as e:
+            logger.error(f"Error verifying voice: {str(e)}")
+            return False, 0.0
+
+    def detect_ai_voice(self, audio_file) -> tuple[bool, float]:
+        """
+        Detect if the voice is AI-generated
+        Placeholder for actual AI detection logic
+        """
+        # TODO: Implement actual AI detection using a model like Resemblyzer or a custom classifier
+        # For now, return False (not AI) with low confidence
+        return False, 0.0
+
+voice_processor = VoiceProcessor()
