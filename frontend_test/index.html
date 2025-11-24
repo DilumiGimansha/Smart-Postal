@@ -153,14 +153,37 @@
 
         <hr>
 
+        <hr>
+
+        <!-- Challenge Section (Hidden by default) -->
+        <div class="form-group hidden" id="challenge-section" style="background-color: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107;">
+            <h3>⚠️ Active Liveness Challenge Required</h3>
+            <p id="challenge-message">High risk detected. Please complete the challenge to continue.</p>
+            <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 10px 0;">
+                <h4 style="margin-top: 0; color: #856404;">📢 Speak the following phrase:</h4>
+                <p id="challenge-phrase" style="font-size: 1.5em; font-weight: bold; color: #007bff; text-align: center; padding: 15px; background-color: #e7f3ff; border-radius: 5px;"></p>
+            </div>
+            <input type="file" id="challenge-file" accept="audio/*">
+            <input type="hidden" id="challenge-id">
+            <input type="hidden" id="challenge-order-id">
+            <br><br>
+            <button onclick="submitChallenge()" style="background-color: #ffc107; color: #000;">🎤 Submit Challenge Response</button>
+            <button onclick="cancelChallenge()" style="background-color: #6c757d;">Cancel</button>
+        </div>
+
+        <hr>
+
         <!-- Info Section -->
         <div class="form-group" style="background-color: #e7f3ff; padding: 15px; border-radius: 5px; border-left: 4px solid #007bff;">
-            <h4 style="margin-top: 0;">🔐 Banking-Grade Security Features</h4>
+            <h4 style="margin-top: 0;">🔐 Enhanced Banking-Grade Security Features</h4>
             <ul style="margin: 10px 0; padding-left: 20px;">
                 <li><strong>Multi-Metric Ensemble:</strong> 3 verification metrics (Cosine, Euclidean, Correlation)</li>
+                <li><strong>11-Layer AI Detection:</strong> MFCC, Spectral, Temporal, Phase, LFCC, Replay detection</li>
                 <li><strong>Noise Reduction:</strong> Advanced preprocessing for outdoor/noisy environments 🌍</li>
                 <li><strong>Quality Assessment:</strong> Lenient checks (SNR ≥3dB, accepts noisy audio)</li>
-                <li><strong>Liveness Detection:</strong> Smart anti-spoofing (fail-open for usability)</li>
+                <li><strong>Liveness Detection:</strong> Smart anti-spoofing + AI/synthetic voice detection</li>
+                <li><strong>Risk-Based Decision Engine:</strong> 4-tier risk assessment (LOW/MEDIUM/HIGH/CRITICAL)</li>
+                <li><strong>Challenge-Response:</strong> Active liveness for high-risk attempts</li>
                 <li><strong>Thresholds:</strong> 80% ensemble + 65% cosine (balanced for accuracy)</li>
             </ul>
         </div>
@@ -280,7 +303,7 @@
             formData.append('file', fileInput.files[0]);
 
             try {
-                log('📤 Uploading enrollment sample (quality check + liveness detection)...');
+                log('📤 Uploading enrollment sample (AI detection + quality check)...');
                 log(`🔑 Using token: ${token.substring(0, 20)}...`);
                 const res = await fetch(`${API_URL}/voice/enroll`, {
                     method: 'POST',
@@ -293,6 +316,26 @@
 
                 log(`✅ ${data.message}`, 'success');
                 log(`📊 Samples Enrolled: ${data.samples_recorded}/${data.samples_required}`, 'success');
+                
+                // Show risk assessment
+                if (data.decision && data.risk_level) {
+                    const riskEmoji = {
+                        'low': '🟢',
+                        'medium': '🟡',
+                        'high': '🟠',
+                        'critical': '🔴'
+                    };
+                    log(`${riskEmoji[data.risk_level] || '⚪'} Risk Level: ${data.risk_level.toUpperCase()} (Score: ${(data.risk_score * 100).toFixed(1)}%)`, 
+                        data.risk_level === 'low' ? 'success' : 'info');
+                    log(`📋 Decision: ${data.decision.toUpperCase()}`, 'info');
+                }
+                
+                // Handle challenge requirement
+                if (data.decision === 'challenge' && data.challenge_id) {
+                    log(`⚠️ Challenge required for high-risk enrollment`, 'error');
+                    log(`Please complete the active liveness challenge`, 'error');
+                    // Could trigger challenge UI here if needed
+                }
                 
                 if (data.enrollment_complete) {
                     log(`🎉 Enrollment COMPLETE! You can now verify your voice.`, 'success');
@@ -323,7 +366,7 @@
             }
 
             try {
-                log('🔍 Processing audio (quality check + liveness detection)...');
+                log('🔍 Processing audio (11-layer AI detection + quality check)...');
                 const res = await fetch(`${API_URL}/voice/verify`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${token}` },
@@ -333,9 +376,23 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.detail || 'Verification failed');
 
-                // Enhanced logging with banking-grade metrics
+                // Enhanced logging with risk assessment
                 log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 
+                // Risk Assessment
+                if (data.decision && data.risk_level) {
+                    const riskEmoji = {
+                        'low': '🟢',
+                        'medium': '🟡',
+                        'high': '🟠',
+                        'critical': '🔴'
+                    };
+                    log(`${riskEmoji[data.risk_level] || '⚪'} Risk Level: ${data.risk_level.toUpperCase()} (Score: ${(data.risk_score * 100).toFixed(1)}%)`, 
+                        data.risk_level === 'low' ? 'success' : 'info');
+                    log(`📋 Decision: ${data.decision.toUpperCase()}`, 'info');
+                }
+                
+                // Verification Result
                 if (data.verified) {
                     log(`✅ VERIFICATION SUCCESSFUL`, 'success');
                     log(`🎯 Ensemble Score: ${data.confidence_score.toFixed(4)} (Threshold: 0.80)`, 'success');
@@ -345,11 +402,31 @@
                     log(`💬 Reason: ${data.message}`, 'error');
                 }
                 
-                // AI/Liveness Detection
+                // AI Detection Details
                 if (data.ai_detected) {
-                    log(`⚠️ AI/Replay Detection: FLAGGED (confidence: ${data.ai_detection_score.toFixed(2)})`, 'error');
+                    log(`🚨 AI/Synthetic Voice DETECTED (Probability: ${(data.ai_probability * 100).toFixed(1)}%)`, 'error');
+                    if (data.is_rerecorded) {
+                        log(`🔊 Re-recorded audio detected (speaker → microphone)`, 'error');
+                    }
                 } else {
-                    log(`🛡️ Liveness Check: PASSED`, 'success');
+                    log(`✅ Human Voice Confirmed (AI Probability: ${(data.ai_probability * 100).toFixed(1)}%)`, 'success');
+                }
+                
+                // Handle Challenge Requirement
+                if (data.decision === 'challenge' && data.challenge_id) {
+                    log(`⚠️ HIGH RISK - Active liveness challenge required!`, 'error');
+                    showChallenge(data.challenge_id, data.challenge_phrase, orderId);
+                }
+                
+                // Handle 2FA Requirement
+                if (data.decision === 'require_2fa') {
+                    log(`🔴 CRITICAL RISK - Two-factor authentication required!`, 'error');
+                    log(`Please contact support for account verification`, 'error');
+                }
+                
+                // Flag for review
+                if (data.should_flag) {
+                    log(`🚩 Flagged for security review`, 'info');
                 }
                 
                 log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -360,6 +437,83 @@
                 log(`❌ Error: ${e.message}`, 'error');
             }
         }
+
+        function showChallenge(challengeId, phrase, orderId) {
+            document.getElementById('challenge-section').classList.remove('hidden');
+            document.getElementById('challenge-phrase').textContent = phrase;
+            document.getElementById('challenge-id').value = challengeId;
+            document.getElementById('challenge-order-id').value = orderId || '';
+            
+            // Scroll to challenge section
+            document.getElementById('challenge-section').scrollIntoView({ behavior: 'smooth' });
+            
+            log(`📢 Challenge phrase: "${phrase}"`, 'info');
+            log(`Please record yourself saying this phrase`, 'info');
+        }
+
+        function cancelChallenge() {
+            document.getElementById('challenge-section').classList.add('hidden');
+            document.getElementById('challenge-file').value = '';
+            log('Challenge cancelled', 'info');
+        }
+
+        async function submitChallenge() {
+            const fileInput = document.getElementById('challenge-file');
+            if (!fileInput.files[0]) {
+                log('Please select a challenge audio file first', 'error');
+                return;
+            }
+
+            const challengeId = document.getElementById('challenge-id').value;
+            const orderId = document.getElementById('challenge-order-id').value;
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('challenge_id', challengeId);
+            if (orderId) {
+                formData.append('order_id', orderId);
+            }
+
+            try {
+                log('🎤 Submitting challenge response (STRICT verification)...');
+                const res = await fetch(`${API_URL}/voice/challenge/verify`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    body: formData
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || 'Challenge verification failed');
+
+                log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                
+                if (data.challenge_passed) {
+                    log(`✅ CHALLENGE PASSED!`, 'success');
+                    log(`🎯 Confidence Score: ${data.confidence_score.toFixed(4)}`, 'success');
+                    log(`✅ Voice verified successfully`, 'success');
+                    log(`🟢 Risk Level: ${data.risk_level.toUpperCase()}`, 'success');
+                } else {
+                    log(`❌ CHALLENGE FAILED`, 'error');
+                    log(`📊 Confidence Score: ${data.confidence_score.toFixed(4)}`, 'error');
+                    log(`💬 ${data.message}`, 'error');
+                    log(`🔴 Risk Level: ${data.risk_level.toUpperCase()}`, 'error');
+                }
+                
+                if (data.ai_detected) {
+                    log(`🚨 AI/Synthetic voice detected in challenge response!`, 'error');
+                } else {
+                    log(`✅ Human voice confirmed`, 'success');
+                }
+                
+                log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                
+                // Hide challenge section
+                cancelChallenge();
+            } catch (e) {
+                log(`❌ Challenge error: ${e.message}`, 'error');
+            }
+        }
     </script>
 </body>
 </html>
+l>
