@@ -32,6 +32,13 @@ noisereduce==3.0.3  # Advanced noise reduction for outdoor/noisy environments
 transformers==4.35.2
 tensorflow==2.15.0
 
+# Face Recognition - Multi-Modal Biometric Authentication
+deepface==0.0.79  # Preferred: Supports Facenet512 with 512-dim embeddings
+opencv-python==4.8.1.78  # Computer vision for face detection
+tf-keras==2.15.0  # Required for DeepFace TensorFlow backend
+retina-face==0.0.14  # High-accuracy face detection (used by DeepFace)
+# face-recognition==1.3.0  # Alternative fallback (128-dim embeddings) - uncomment if needed
+
 # Utilities
 pydantic==2.5.0
 pydantic-settings==2.1.0

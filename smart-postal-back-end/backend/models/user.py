@@ -28,4 +28,5 @@ class User(Base):
     orders = relationship("Order", back_populates="customer", foreign_keys="Order.customer_id")
     voice_templates = relationship("VoiceTemplate", back_populates="user", cascade="all, delete-orphan", lazy="select")
     fingerprint_templates = relationship("FingerprintTemplate", back_populates="user", cascade="all, delete-orphan", lazy="select")
+    face_templates = relationship("FaceTemplate", back_populates="user", cascade="all, delete-orphan", lazy="select")
     verification_logs = relationship("VerificationLog", back_populates="user", lazy="select")
