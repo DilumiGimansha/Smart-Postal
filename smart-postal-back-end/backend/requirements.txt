@@ -21,7 +21,7 @@ librosa==0.10.1
 soundfile==0.12.1
 numpy==1.24.3
 scipy==1.11.4
-resemblyzer==0.1.4
+# resemblyzer==0.1.4 # Installed manually to avoid webrtcvad build issues on Windows. Requires webrtcvad-wheels.
 webrtcvad-wheels==2.0.14  # Pre-compiled wheels for Windows
 torch==2.1.0
 torchaudio==2.1.0

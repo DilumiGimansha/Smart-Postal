@@ -7,6 +7,8 @@ from models.user import User, UserRole
 from utils.security import decode_token
 from api.schemas import TokenData
 
+from loguru import logger
+
 security = HTTPBearer()
 
 async def get_current_user(
@@ -24,18 +26,22 @@ async def get_current_user(
     payload = decode_token(token)
     
     if payload is None:
+        logger.warning("Token decode failed")
         raise credentials_exception
     
     # Token uses 'sub' as the user_id claim
     user_id: str = payload.get("sub")
     if user_id is None:
+        logger.warning("Token missing sub claim")
         raise credentials_exception
     
     user = db.query(User).filter(User.id == int(user_id)).first()
     if user is None:
+        logger.warning(f"User {user_id} not found")
         raise credentials_exception
     
     if not user.is_active:
+        logger.warning(f"User {user_id} is inactive")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive"

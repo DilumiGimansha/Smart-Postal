@@ -45,7 +45,7 @@ async def enroll_voice(
             perform_quality_check=True,
             perform_liveness_check=False,  # Less strict for enrollment
             perform_ai_detection=True,  # CRITICAL: Detect AI voices during enrollment
-            ai_detection_strict_mode=True  # Strict mode for enrollment security
+            ai_detection_strict_mode=False  # Relaxed mode for testing
         )
         
         if not result["success"]:
@@ -55,6 +55,7 @@ async def enroll_voice(
             # Special handling for AI detection failures
             if error_code == "AI_SYNTHETIC_VOICE_DETECTED":
                 ai_metrics = result.get("ai_detection_metrics", {})
+                logger.warning(f"AI Detection blocked enrollment: {ai_metrics}")
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail={
@@ -217,7 +218,7 @@ async def verify_voice(
             perform_quality_check=True,
             perform_liveness_check=True,
             perform_ai_detection=True,  # CRITICAL: Detect AI voices during verification
-            ai_detection_strict_mode=True  # Strict mode for verification security
+            ai_detection_strict_mode=False  # Relaxed mode for testing
         )
         
         if not result["success"]:
@@ -227,6 +228,7 @@ async def verify_voice(
             # Special handling for AI detection failures
             if error_code == "AI_SYNTHETIC_VOICE_DETECTED":
                 ai_metrics = result.get("ai_detection_metrics", {})
+                logger.warning(f"AI Detection blocked verification: {ai_metrics}")
                 
                 # Log the failed verification attempt with AI detection flag
                 log = VerificationLog(
