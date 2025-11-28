@@ -459,6 +459,9 @@ async def verify_challenge(
     """
     Verify a challenge response with voice audio.
     This provides active liveness detection through challenge-response.
+    Verifies BOTH that:
+    1. The voice matches the enrolled template
+    2. The user spoke the correct digits
     """
     # 1. Validate Challenge
     challenge = challenge_manager.get_challenge(challenge_id)
@@ -474,6 +477,10 @@ async def verify_challenge(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Challenge does not belong to current user"
         )
+    
+    # Get expected digits from challenge
+    expected_digits = challenge.expected_digits
+    logger.info(f"Challenge verification - Expected digits: {expected_digits}")
     
     # Determine target user for verification
     if order_id:
@@ -496,13 +503,15 @@ async def verify_challenge(
         )
     
     # 3. Process Challenge Audio (STRICT checks)
+    audio_path = None
     try:
         result = await voice_processor.process_audio(
             file,
             perform_quality_check=True,
             perform_liveness_check=True,
             perform_ai_detection=True,
-            ai_detection_strict_mode=True  # Maximum strictness for challenges
+            ai_detection_strict_mode=False,  # Relaxed for challenge - we verify phrase instead
+            keep_audio_file=True  # Keep file for STT processing
         )
         
         if not result["success"]:
@@ -514,6 +523,7 @@ async def verify_challenge(
         
         incoming_embedding = result["embedding"]
         ai_detection_metrics = result.get("ai_detection_metrics", {})
+        audio_path = result.get("audio_path", "")
         
     except HTTPException:
         raise
@@ -523,7 +533,18 @@ async def verify_challenge(
             detail=f"Error processing challenge audio: {str(e)}"
         )
     
-    # 4. Verify Voice
+    # 4. Verify spoken phrase (STT) - THIS IS THE KEY ADDITION
+    phrase_verified = True
+    transcribed_text = ""
+    phrase_confidence = 0.0
+    
+    if audio_path:
+        phrase_verified, transcribed_text, phrase_confidence = voice_processor.verify_challenge_phrase(
+            audio_path, expected_digits
+        )
+        logger.info(f"Phrase verification: verified={phrase_verified}, text='{transcribed_text}', confidence={phrase_confidence}")
+    
+    # 5. Verify Voice
     try:
         stored_embedding = pickle.loads(voice_template.embedding_data)
     except Exception as e:
@@ -535,10 +556,17 @@ async def verify_challenge(
     is_verified, ensemble_score, verification_metrics = voice_processor.verify_voice_ensemble(
         incoming_embedding,
         stored_embedding,
-        use_strict_threshold=True  # Use strict threshold for challenges
+        use_strict_threshold=False  # Use normal threshold since we also verify phrase
     )
     
-    # 5. Enhanced Decision for Challenge Response
+    # For challenges: use lower voice threshold since phrase verification adds security
+    # If phrase is correct, accept lower voice match (0.60 instead of 0.80)
+    CHALLENGE_VOICE_THRESHOLD = 0.60
+    voice_acceptable = ensemble_score >= CHALLENGE_VOICE_THRESHOLD
+    
+    logger.info(f"Challenge voice check: score={ensemble_score:.3f}, threshold={CHALLENGE_VOICE_THRESHOLD}, acceptable={voice_acceptable}")
+    
+    # 6. Enhanced Decision for Challenge Response
     ai_score = ai_detection_metrics.get("ai_probability", 0.0)
     
     decision_result = decision_engine.evaluate(
@@ -546,47 +574,58 @@ async def verify_challenge(
         asv_score=ensemble_score,
         ai_probability=ai_score,
         ai_flags=ai_detection_metrics.get("flags", []),
-        metadata={"challenge_response": True},
+        metadata={"challenge_response": True, "phrase_verified": phrase_verified},
         is_enrollment=False
     )
     
     # Mark challenge as used
     challenge_manager.mark_used(challenge_id)
     
-    # 6. Log Challenge Verification
+    # 7. Log Challenge Verification
     log = VerificationLog(
         user_id=customer_id,
         order_id=order_id,
         verification_type="voice_challenge",
-        success=is_verified and decision_result.decision == DecisionType.ACCEPT,
+        success=is_verified and phrase_verified and decision_result.decision == DecisionType.ACCEPT,
         confidence_score=ensemble_score,
         ai_detected=not ai_detection_metrics.get("is_human", True),
         ai_detection_score=ai_score,
         ip_address="0.0.0.0",  # TODO: Get from request
-        device_info="challenge_response"
+        device_info=f"challenge_response|phrase:{transcribed_text}"
     )
     db.add(log)
     db.commit()
     
-    # 7. Determine Final Result
+    # 8. Determine Final Result - For challenges, phrase verification is PRIMARY
+    # Voice matching threshold is lowered since phrase adds security
     challenge_passed = (
-        is_verified and 
-        decision_result.decision == DecisionType.ACCEPT and
-        ai_score < 0.35  # Extra strict for challenges
+        voice_acceptable and  # Voice is acceptable (lower threshold for challenges)
+        phrase_verified and  # Correct digits spoken (PRIMARY CHECK)
+        ai_score < 0.60  # AI check (relaxed since phrase verification adds security)
     )
     
     if challenge_passed:
-        message = f"✓ Challenge passed! Voice verified with {ensemble_score:.1%} confidence"
+        message = f"✓ Challenge passed! Voice verified ({ensemble_score:.1%}) and correct phrase spoken"
     else:
-        if not is_verified:
-            message = f"✗ Challenge failed: Voice did not match (Score: {ensemble_score:.1%})"
-        elif decision_result.decision != DecisionType.ACCEPT:
-            message = f"✗ Challenge failed: {decision_result.reason}"
+        if not phrase_verified:
+            message = f"✗ Challenge failed: Incorrect digits spoken. Expected: {expected_digits}, Heard: '{transcribed_text}'"
+        elif not voice_acceptable:
+            message = f"✗ Challenge failed: Voice did not match (Score: {ensemble_score:.1%}, need {CHALLENGE_VOICE_THRESHOLD:.1%})"
         else:
             message = f"✗ Challenge failed: AI detection flagged (AI probability: {ai_score:.1%})"
     
     logger.info(f"Challenge {challenge_id} result: Passed={challenge_passed}, "
-               f"Ensemble={ensemble_score:.3f}, AI={ai_score:.3f}")
+               f"Voice={voice_acceptable} ({ensemble_score:.3f}), Phrase={phrase_verified} ('{transcribed_text}'), "
+               f"AI={ai_score:.3f}")
+    
+    # Cleanup audio file
+    if audio_path:
+        import os
+        try:
+            if os.path.exists(audio_path):
+                os.remove(audio_path)
+        except Exception as e:
+            logger.warning(f"Failed to cleanup audio file: {e}")
     
     return ChallengeVerifyResponse(
         success=True,

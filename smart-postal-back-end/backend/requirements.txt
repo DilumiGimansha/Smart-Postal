@@ -32,6 +32,10 @@ noisereduce==3.0.3  # Advanced noise reduction for outdoor/noisy environments
 transformers==4.35.2
 tensorflow==2.15.0
 
+# Speech Recognition for Challenge Verification
+SpeechRecognition==3.10.0
+vosk==0.3.45  # Offline speech recognition
+
 # Utilities
 pydantic==2.5.0
 pydantic-settings==2.1.0

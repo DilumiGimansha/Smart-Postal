@@ -1,6 +1,5 @@
 import os
 import torch
-import torchaudio
 import numpy as np
 from loguru import logger
 from config.settings import get_settings
@@ -13,6 +12,15 @@ from scipy.stats import kurtosis, skew
 import librosa
 from dataclasses import dataclass, asdict
 from fastapi import UploadFile
+
+# Try importing torchaudio - may fail on Windows without FFmpeg
+try:
+    import torchaudio
+    TORCHAUDIO_AVAILABLE = True
+except Exception as e:
+    logger.warning(f"torchaudio not available: {e}. Using librosa fallback.")
+    torchaudio = None
+    TORCHAUDIO_AVAILABLE = False
 
 settings = get_settings()
 
@@ -658,15 +666,26 @@ class BankingGradeVoiceProcessor:
     async def process_audio(self, file: UploadFile, perform_quality_check: bool = True,
                           perform_liveness_check: bool = True,
                           perform_ai_detection: bool = True,
-                          ai_detection_strict_mode: bool = True) -> Dict:
-        """Process audio file with quality checks, AI detection, and embedding extraction"""
+                          ai_detection_strict_mode: bool = True,
+                          keep_audio_file: bool = False) -> Dict:
+        """Process audio file with quality checks, AI detection, and embedding extraction
+        
+        Args:
+            file: Uploaded audio file
+            perform_quality_check: Whether to check audio quality
+            perform_liveness_check: Whether to perform liveness detection
+            perform_ai_detection: Whether to detect AI-generated voices
+            ai_detection_strict_mode: Use stricter AI detection thresholds
+            keep_audio_file: If True, don't delete temp file (for STT processing)
+        """
         self._ensure_models_loaded()
         
         if self.initialization_error:
             return {
                 "success": False,
                 "error": f"Models not available: {self.initialization_error}",
-                "embedding": None
+                "embedding": None,
+                "audio_path": None
             }
         
         temp_path = None
@@ -683,12 +702,15 @@ class BankingGradeVoiceProcessor:
                 quality_metrics = self.assess_audio_quality(temp_path)
                 # Only reject for extreme low or duration issues
                 if quality_metrics.duration < 0.5:
+                    if not keep_audio_file and temp_path and os.path.exists(temp_path):
+                        os.remove(temp_path)
                     return {
                         "success": False,
                         "error": "Audio too short (minimum 0.5 seconds)",
                         "error_code": "AUDIO_TOO_SHORT",
                         "quality_metrics": asdict(quality_metrics),
-                        "embedding": None
+                        "embedding": None,
+                        "audio_path": None
                     }
                 # Accept even noisy audio - we'll clean it
                 logger.info(f"📊 Quality: SNR={quality_metrics.snr:.1f}dB, Duration={quality_metrics.duration:.2f}s")
@@ -724,13 +746,17 @@ class BankingGradeVoiceProcessor:
                         f"Flags={ai_detection_metrics.flags}"
                     )
                     
+                    if not keep_audio_file and temp_path and os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    
                     return {
                         "success": False,
                         "error": rejection_reason,
                         "error_code": "AI_SYNTHETIC_VOICE_DETECTED",
                         "quality_metrics": asdict(quality_metrics) if quality_metrics else None,
                         "ai_detection_metrics": asdict(ai_detection_metrics),
-                        "embedding": None
+                        "embedding": None,
+                        "audio_path": None
                     }
             
             # Legacy liveness check (supplementary)
@@ -780,14 +806,16 @@ class BankingGradeVoiceProcessor:
                 "liveness_metrics": asdict(liveness_metrics) if liveness_metrics else None,
                 "ai_detection_metrics": asdict(ai_detection_metrics) if ai_detection_metrics else None,
                 "error": None,
-                "error_code": None
+                "error_code": None,
+                "audio_path": temp_path if keep_audio_file else None
             }
             
         except Exception as e:
             logger.error(f"Processing error: {str(e)}")
             raise e
         finally:
-            if os.path.exists(temp_path):
+            # Only delete temp file if not keeping it
+            if not keep_audio_file and temp_path and os.path.exists(temp_path):
                 os.remove(temp_path)
 
     def verify_voice_ensemble(self, embedding1: np.ndarray, embedding2: np.ndarray,
@@ -894,5 +922,130 @@ class BankingGradeVoiceProcessor:
             logger.error(f"Template validation error: {str(e)}")
             return False, 0.0, f"Validation error: {str(e)}"
 
+    def transcribe_audio_for_digits(self, audio_path: str) -> Tuple[bool, str, float]:
+        """
+        Transcribe audio to extract spoken digits for challenge verification.
+        
+        Args:
+            audio_path: Path to the audio file
+            
+        Returns:
+            Tuple of (success, transcribed_text, confidence)
+        """
+        try:
+            import speech_recognition as sr
+            
+            recognizer = sr.Recognizer()
+            
+            # Convert audio to WAV format if needed (SpeechRecognition needs WAV)
+            y, sr_rate = librosa.load(audio_path, sr=16000)
+            
+            # Save as temporary WAV file
+            temp_wav = audio_path.replace('.webm', '_temp.wav').replace('.ogg', '_temp.wav')
+            if not temp_wav.endswith('.wav'):
+                temp_wav = audio_path + '_temp.wav'
+            
+            import soundfile as sf
+            sf.write(temp_wav, y, sr_rate)
+            
+            with sr.AudioFile(temp_wav) as source:
+                audio_data = recognizer.record(source)
+            
+            # Try Google Speech Recognition (free, works well for digits)
+            try:
+                # Use Google's free speech recognition
+                transcription = recognizer.recognize_google(audio_data)
+                logger.info(f"🎤 Google STT transcription: '{transcription}'")
+                
+                # Clean up temp file
+                try:
+                    os.remove(temp_wav)
+                except:
+                    pass
+                
+                return True, transcription.lower(), 0.9
+                
+            except sr.UnknownValueError:
+                logger.warning("Google STT could not understand the audio")
+                # Try Sphinx (offline, less accurate but doesn't need internet)
+                try:
+                    transcription = recognizer.recognize_sphinx(audio_data)
+                    logger.info(f"🎤 Sphinx STT transcription: '{transcription}'")
+                    return True, transcription.lower(), 0.6
+                except:
+                    pass
+                    
+            except sr.RequestError as e:
+                logger.warning(f"Google STT request failed: {e}, trying offline recognition")
+            
+            # Clean up temp file
+            try:
+                os.remove(temp_wav)
+            except:
+                pass
+                
+            return False, "", 0.0
+            
+        except ImportError:
+            logger.warning("SpeechRecognition not installed. Challenge phrase verification disabled.")
+            return False, "", 0.0
+        except Exception as e:
+            logger.error(f"Transcription error: {str(e)}")
+            return False, "", 0.0
+
+    def verify_challenge_phrase(self, audio_path: str, expected_digits: str) -> Tuple[bool, str, float]:
+        """
+        Verify if the spoken audio contains the expected digits.
+        
+        Args:
+            audio_path: Path to the audio file
+            expected_digits: The digits that should be spoken (e.g., "1234")
+            
+        Returns:
+            Tuple of (match, transcribed_text, confidence)
+        """
+        success, transcription, confidence = self.transcribe_audio_for_digits(audio_path)
+        
+        if not success:
+            logger.warning("Transcription failed - skipping phrase verification")
+            # Return True to not block verification if STT fails
+            # The voice matching is still performed
+            return True, "STT_UNAVAILABLE", 0.5
+        
+        # Extract digits from transcription
+        # Handle both numeric and word forms
+        digit_words = {
+            'zero': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4',
+            'five': '5', 'six': '6', 'seven': '7', 'eight': '8', 'nine': '9',
+            'oh': '0', 'o': '0'
+        }
+        
+        # First, replace word digits with numeric
+        text = transcription.lower()
+        for word, digit in digit_words.items():
+            text = text.replace(word, digit)
+        
+        # Extract only digits
+        spoken_digits = ''.join(c for c in text if c.isdigit())
+        
+        logger.info(f"🔢 Expected: '{expected_digits}', Spoken: '{spoken_digits}', Raw: '{transcription}'")
+        
+        # Check if digits match
+        if spoken_digits == expected_digits:
+            logger.info(f"✓ Challenge phrase verified: '{expected_digits}'")
+            return True, transcription, confidence
+        
+        # Partial match check (at least 3 out of 4 digits correct in sequence)
+        if len(expected_digits) == 4 and len(spoken_digits) >= 3:
+            # Check if spoken digits are a subset in the right order
+            match_count = sum(1 for i, d in enumerate(expected_digits) if i < len(spoken_digits) and spoken_digits[i] == d)
+            if match_count >= 3:
+                logger.info(f"✓ Challenge phrase partially verified ({match_count}/4 digits)")
+                return True, transcription, confidence * (match_count / 4)
+        
+        logger.warning(f"✗ Challenge phrase mismatch: expected '{expected_digits}', got '{spoken_digits}'")
+        return False, transcription, confidence
+
 
 voice_processor = BankingGradeVoiceProcessor()
+

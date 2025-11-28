@@ -37,6 +37,7 @@ class Challenge:
     challenge_id: str
     user_id: int
     phrase: str
+    expected_digits: str  # The digits that should be spoken
     created_at: datetime
     expires_at: datetime
     is_used: bool = False
@@ -82,6 +83,7 @@ class ChallengeManager:
             challenge_id=challenge_id,
             user_id=user_id,
             phrase=phrase,
+            expected_digits=digits,  # Store the digits for verification
             created_at=datetime.now(),
             expires_at=datetime.now() + timedelta(minutes=5),
             is_used=False
@@ -89,7 +91,7 @@ class ChallengeManager:
         
         # Store challenge
         self.active_challenges[challenge_id] = challenge
-        logger.info(f"Generated challenge {challenge_id} for user {user_id}")
+        logger.info(f"Generated challenge {challenge_id} for user {user_id} with digits {digits}")
         
         return challenge
     
