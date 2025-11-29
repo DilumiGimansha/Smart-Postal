@@ -250,8 +250,8 @@ class BankingGradeVoiceProcessor:
             mfcc_variance = np.mean(mfcc_std)
             features['mfcc_variance'] = float(mfcc_variance)
             
-            # Low variance suggests synthetic generation (relaxed threshold)
-            if mfcc_variance < 10.0:
+            # Low variance suggests synthetic generation (very relaxed to reduce false positives)
+            if mfcc_variance < 5.0:  # Lowered from 10.0 to reduce false positives
                 flags.append("LOW_MFCC_VARIANCE")
             
             # Spectral centroid - center of mass of spectrum
@@ -262,8 +262,8 @@ class BankingGradeVoiceProcessor:
             features['spectral_centroid_mean'] = float(spectral_centroid_mean)
             features['spectral_centroid_std'] = float(spectral_centroid_std)
             
-            # AI voices tend to have more stable spectral centroid (relaxed threshold)
-            if spectral_centroid_std < 150:
+            # AI voices tend to have more stable spectral centroid (very relaxed to reduce false positives)
+            if spectral_centroid_std < 80:  # Lowered from 150 to reduce false positives
                 flags.append("STABLE_SPECTRAL_CENTROID")
             
             # =================================================================
@@ -280,12 +280,12 @@ class BankingGradeVoiceProcessor:
             features['energy_kurtosis'] = float(energy_kurtosis_val)
             features['energy_skew'] = float(energy_skew_val)
             
-            # AI voices often have unnaturally consistent energy (relaxed threshold)
-            if energy_variance < 0.0003:
+            # AI voices often have unnaturally consistent energy (very relaxed)
+            if energy_variance < 0.0001:  # Lowered from 0.0003 to reduce false positives
                 flags.append("LOW_ENERGY_VARIANCE")
             
-            # Unnatural kurtosis suggests synthetic generation
-            if abs(energy_kurtosis_val) < 1.5 or abs(energy_kurtosis_val) > 8.0:
+            # Unnatural kurtosis suggests synthetic generation (relaxed range)
+            if abs(energy_kurtosis_val) < 0.8 or abs(energy_kurtosis_val) > 12.0:  # Wider range
                 flags.append("ABNORMAL_ENERGY_KURTOSIS")
             
             # =================================================================
@@ -302,8 +302,8 @@ class BankingGradeVoiceProcessor:
             
             features['phase_coherence'] = float(phase_coherence)
             
-            # Re-recorded audio has different phase characteristics (relaxed threshold)
-            if phase_coherence > 0.90:
+            # Re-recorded audio has different phase characteristics (very relaxed)
+            if phase_coherence > 0.95:  # Raised from 0.90 to reduce false positives
                 flags.append("HIGH_PHASE_COHERENCE")
             
             # =================================================================
@@ -326,8 +326,8 @@ class BankingGradeVoiceProcessor:
             high_low_ratio = high_freq_power / (low_freq_power + 1e-10)
             features['high_low_freq_ratio'] = float(high_low_ratio)
             
-            # Low ratio suggests re-recording or speaker playback (focus on clear cases)
-            if high_low_ratio < 0.008:
+            # Low ratio suggests re-recording or speaker playback (very relaxed)
+            if high_low_ratio < 0.003:  # Lowered from 0.008 to reduce false positives
                 flags.append("LOW_HIGH_FREQ_CONTENT")
             
             # =================================================================
@@ -349,8 +349,8 @@ class BankingGradeVoiceProcessor:
                     pitch_std = np.std(pitch_values)
                     features['pitch_std'] = float(pitch_std)
                     
-                    # AI voices often have unnaturally stable pitch
-                    if pitch_std < 10.0:
+                    # AI voices often have unnaturally stable pitch (very relaxed)
+                    if pitch_std < 5.0:  # Lowered from 10.0 to reduce false positives
                         flags.append("STABLE_PITCH")
             except:
                 features['pitch_std'] = 0.0
@@ -419,8 +419,8 @@ class BankingGradeVoiceProcessor:
                     
                     features['echo_strength'] = float(max_echo)
                     
-                    # Strong echo suggests speaker playback
-                    if max_echo > 0.3:
+                    # Strong echo suggests speaker playback (raised threshold)
+                    if max_echo > 0.45:  # Raised from 0.3 to reduce false positives
                         flags.append("ECHO_DETECTED")
                         is_rerecorded = True
                         rerecording_confidence = min(max_echo, 1.0)
@@ -437,7 +437,7 @@ class BankingGradeVoiceProcessor:
             
             features['very_high_freq_power'] = float(very_high_power)
             
-            if very_high_power < 0.001:
+            if very_high_power < 0.0005:  # Lowered from 0.001 to reduce false positives
                 flags.append("BANDLIMITED_SIGNAL")
                 is_rerecorded = True
                 rerecording_confidence = max(rerecording_confidence, 0.6)
@@ -452,8 +452,8 @@ class BankingGradeVoiceProcessor:
             
             features['zcr_std'] = float(zcr_std)
             
-            # AI voices often have more consistent zero-crossing rates
-            if zcr_std < 0.02:
+            # AI voices often have more consistent zero-crossing rates (relaxed)
+            if zcr_std < 0.01:  # Lowered from 0.02 to reduce false positives
                 flags.append("CONSISTENT_ZCR")
             
             # =================================================================
@@ -543,13 +543,13 @@ class BankingGradeVoiceProcessor:
             # Normalize to 0-1 range
             ai_probability = min(ai_score, 1.0)
             
-            # Determine detection thresholds (balanced to reduce false positives)
+            # Determine detection thresholds (relaxed to reduce false positives on real voices)
             if strict_mode:
-                # Strict mode: Sensitive but not overly aggressive
-                AI_THRESHOLD = 0.45  # Reject if 45%+ AI probability
+                # Strict mode: Still catches obvious AI but more tolerant
+                AI_THRESHOLD = 0.55  # Reject if 55%+ AI probability (raised from 0.45)
             else:
-                # Standard mode: Balanced
-                AI_THRESHOLD = 0.60  # Reject if 60%+ AI probability
+                # Standard mode: Very tolerant - only catch clear AI cases
+                AI_THRESHOLD = 0.70  # Reject if 70%+ AI probability (raised from 0.60)
             
             is_human = ai_probability < AI_THRESHOLD
             confidence = abs(ai_probability - 0.5) * 2  # Distance from decision boundary
