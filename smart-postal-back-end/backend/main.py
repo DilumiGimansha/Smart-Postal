@@ -7,8 +7,8 @@ from loguru import logger
 
 from config.settings import get_settings
 from models.database import engine, Base
-from models import User, Order, VoiceTemplate, FingerprintTemplate, VerificationLog, Delivery
-from api.routes import auth, users, orders, voice
+from models import User, Order, VoiceTemplate, FingerprintTemplate, FaceTemplate, VerificationLog, Delivery
+from api.routes import auth, users, orders, voice, face
 
 settings = get_settings()
 
@@ -95,8 +95,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(orders.router)
 app.include_router(voice.router)
-# We'll add biometric routes later
-# app.include_router(biometric.router)
+app.include_router(face.router)
 
 if __name__ == "__main__":
     import uvicorn

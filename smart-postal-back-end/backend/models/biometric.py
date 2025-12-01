@@ -41,6 +41,35 @@ class FingerprintTemplate(Base):
     # Relationships
     user = relationship("User", back_populates="fingerprint_templates")
 
+class FaceTemplate(Base):
+    __tablename__ = "face_templates"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Face data (encrypted embeddings)
+    embedding_data = Column(LargeBinary, nullable=False)  # Encrypted 512-dim face embedding
+    id_card_info = Column(Text, nullable=True)  # Encrypted ID card metadata
+    
+    # Quality metrics
+    face_quality_score = Column(Float, nullable=True)  # Face quality (0-1)
+    confidence_score = Column(Float, nullable=True)  # Detection confidence
+    
+    # Anti-spoofing
+    liveness_score = Column(Float, nullable=True)  # Liveness detection score
+    anti_spoof_passed = Column(Boolean, default=True)
+    
+    # Metadata
+    enrollment_type = Column(String(50), nullable=True)  # 'id_card', 'live_capture', 'locker'
+    device_id = Column(String(100), nullable=True)
+    
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Relationships
+    user = relationship("User", back_populates="face_templates")
+
 class VerificationLog(Base):
     __tablename__ = "verification_logs"
     
