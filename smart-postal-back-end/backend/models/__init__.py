@@ -2,7 +2,7 @@
 from .database import Base, engine, SessionLocal, get_db
 from .user import User, UserRole
 from .order import Order, OrderStatus
-from .biometric import VoiceTemplate, FingerprintTemplate, VerificationLog, Delivery
+from .biometric import VoiceTemplate, FingerprintTemplate, FaceTemplate, VerificationLog, Delivery
 
 __all__ = [
     "Base",

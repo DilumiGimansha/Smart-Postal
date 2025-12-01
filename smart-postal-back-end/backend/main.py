@@ -7,13 +7,18 @@ from loguru import logger
 
 from config.settings import get_settings
 from models.database import engine, Base
-from models import User, Order, VoiceTemplate, FingerprintTemplate, VerificationLog, Delivery
-from api.routes import auth, users, orders
+from models import User, Order, VoiceTemplate, FingerprintTemplate, FaceTemplate, VerificationLog, Delivery
+from api.routes import auth, users, orders, voice, face
 
 settings = get_settings()
 
 # Create database tables
-Base.metadata.create_all(bind=engine)
+try:
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database tables created/verified successfully")
+except Exception as e:
+    logger.error(f"Database connection failed: {e}")
+    logger.warning("Continuing without database - some features may not work")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -31,13 +36,14 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS Configuration
+# CORS Configuration - Allow all origins including file:// for local testing
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # In production, specify exact origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # Request logging middleware
@@ -88,8 +94,8 @@ async def root():
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(orders.router)
-# We'll add biometric routes later
-# app.include_router(biometric.router)
+app.include_router(voice.router)
+app.include_router(face.router)
 
 if __name__ == "__main__":
     import uvicorn
