@@ -49,11 +49,18 @@ npm start
 
 ## API Endpoints
 
+- `GET /api/route-addresses/` - List all addresses
+- `POST /api/route-addresses/` - Create new address
+- `POST /api/route-addresses/bulk_upload/` - Bulk CSV upload
+- `GET /api/route-addresses/validate_address/` - Validate address
+
+
+## sample Endpoints[Optional]
+
 - `GET /api/delivery-addresses/` - List all addresses
 - `POST /api/delivery-addresses/` - Create new address
 - `POST /api/delivery-addresses/bulk_upload/` - Bulk CSV upload
 - `GET /api/delivery-addresses/validate_address/` - Validate address
-
 ## Development Status
 
 - [x] Initial project setup
