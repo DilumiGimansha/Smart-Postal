@@ -29,7 +29,7 @@ export const deliveryAddressAPI = {
   
   // Validate address
   validateAddress: (address) => 
-    api.post('/delivery-addresses/validate_address/', { address }),
+    api.get('/delivery-addresses/validate_address/', { address }),
   
   // Bulk upload CSV
   bulkUpload: (file, createdBy) => {
