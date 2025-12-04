@@ -113,28 +113,107 @@ class DeliveryAddressViewSet(viewsets.ModelViewSet):
         params = {
             'q': address,
             'format': 'json',
-            'limit': 1
+            'limit': 1,
+            'addressdetails': 1
         }
-        headers = {'User-Agent': 'DeliverySystemApp/1.0'}
+        headers = {
+            'User-Agent': 'DeliverySystemApp/1.0 (your-email@example.com)',
+            'Accept-Language': 'en'
+        }
         
         try:
-            time.sleep(1)  # Respect usage policy
-            response = requests.get(url, params=params, headers=headers, timeout=5)
-            if response.status_code == 200 and response.json():
-                result = response.json()[0]
+            # Add delay to respect Nominatim usage policy (max 1 request per second)
+            time.sleep(1)
+            
+            response = requests.get(
+                url, 
+                params=params, 
+                headers=headers, 
+                timeout=10
+            )
+            
+            # Check response status
+            if response.status_code == 200:
+                results = response.json()
+                
+                if results and len(results) > 0:
+                    result = results[0]
+                    return Response({
+                        'valid': True,
+                        'latitude': result['lat'],
+                        'longitude': result['lon'],
+                        'display_name': result.get('display_name', ''),
+                        'address_details': result.get('address', {})
+                    })
+                else:
+                    return Response({
+                        'valid': False,
+                        'message': 'Address not found. Please check the address details.'
+                    })
+            
+            elif response.status_code == 429:
                 return Response({
-                    'valid': True,
-                    'latitude': result['lat'],
-                    'longitude': result['lon'],
-                    'display_name': result['display_name']
-                })
+                    'valid': False,
+                    'message': 'Too many requests. Please wait a moment and try again.',
+                    'error': 'rate_limit'
+                }, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            
             else:
                 return Response({
                     'valid': False,
-                    'message': 'Address not found'
-                })
+                    'message': f'Geocoding service returned error: {response.status_code}',
+                    'error': 'service_error'
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+                
+        except requests.exceptions.Timeout:
+            return Response({
+                'valid': False,
+                'message': 'Request timeout. The geocoding service is taking too long to respond.',
+                'error': 'timeout'
+            }, status=status.HTTP_504_GATEWAY_TIMEOUT)
+            
+        except requests.exceptions.ConnectionError:
+            return Response({
+                'valid': False,
+                'message': 'Cannot connect to geocoding service. Please check your internet connection.',
+                'error': 'connection_error'
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            
         except Exception as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+            return Response({
+                'valid': False,
+                'message': f'Unexpected error: {str(e)}',
+                'error': 'unknown_error'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=False, methods=['get'])
+    def statistics(self, request):
+        """Get delivery statistics"""
+        from django.db.models import Count
+        
+        total = DeliveryAddress.objects.count()
+        urgent = DeliveryAddress.objects.filter(priority='urgent').count()
+        regular = DeliveryAddress.objects.filter(priority='regular').count()
+        geocoded = DeliveryAddress.objects.filter(
+            latitude__isnull=False,
+            longitude__isnull=False
+        ).count()
+        
+        return Response({
+            'total': total,
+            'urgent': urgent,
+            'regular': regular,
+            'geocoded': geocoded,
+            'not_geocoded': total - geocoded
+        })
+    
+    @action(detail=False, methods=['get'])
+    def by_city(self, request):
+        """Get addresses grouped by city"""
+        from django.db.models import Count
+        
+        cities = DeliveryAddress.objects.values('city').annotate(
+            count=Count('id')
+        ).order_by('-count')
+        
+        return Response(list(cities))
