@@ -74,3 +74,5 @@ const TrainingProgress: React.FC = () => {
     </Paper>
   );
 };
+
+export default TrainingProgress;

@@ -34,6 +34,10 @@
     "globals": "^16.5.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
-    "vite": "^7.2.4"
+    "vite": "^7.2.4",
+     "@mui/material": "^6.1.9",
+    "@mui/icons-material": "^6.1.9",
+    "@emotion/react": "^11.13.5",
+    "@emotion/styled": "^11.13.5"
   }
 }
