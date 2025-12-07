@@ -1,8 +1,10 @@
 from django.db import models
+from django.utils import timezone
 
 class Address(models.Model):
     address_line = models.CharField(max_length=255)
     city = models.CharField(max_length=100, default='Colombo')
+    created_at = models.DateTimeField(default=timezone.now)
     postal_code = models.CharField(max_length=10)
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
