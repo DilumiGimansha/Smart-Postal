@@ -8,7 +8,7 @@
 # 1. Classify mail priority (urgent vs regular)
 # 2. Optimize delivery routes with dynamic rerouting
 
-# In[78]:
+# In[15]:
 
 
 # SECTION 0: ENVIRONMENT SETUP & IMPORTS
@@ -37,7 +37,7 @@ for pkg in packages:
 print("\n✅ All packages installed successfully!")
 
 
-# In[79]:
+# In[16]:
 
 
 # Import all required libraries
@@ -81,7 +81,7 @@ print("✅ All imports successful!")
 print(f"📌 Random seed: {RANDOM_SEED}")
 
 
-# In[80]:
+# In[17]:
 
 
 class PriorityClassificationModel:
@@ -528,7 +528,7 @@ class PriorityClassificationModel:
         print(f"✅ Model 1 saved to {filepath}")
 
 
-# In[81]:
+# In[18]:
 
 
 class DynamicRouteOptimizer:
@@ -1051,7 +1051,7 @@ class DynamicRouteOptimizer:
         }
 
 
-# In[82]:
+# In[19]:
 
 
 class RelocationTracker:
@@ -1426,7 +1426,7 @@ class DynamicRerouter:
 # **Algorithm**: XGBoost with 14 engineered features  
 # **Target Performance**: ≥95% recall on urgent items
 
-# In[83]:
+# In[20]:
 
 
 print("\n" + "=" * 80)
@@ -1449,7 +1449,7 @@ priority_results = priority_model.train(
 print("\n🎉 Model 1 training complete!")
 
 
-# In[84]:
+# In[21]:
 
 
 print("\n" + "=" * 70)
@@ -1499,7 +1499,7 @@ for i, test_case in enumerate(test_cases, 1):
 # **Algorithms**: Q-Learning, 2-Opt, Urgent Priority, Nearest Neighbor  
 # **Factors**: Traffic patterns, weather conditions, urgency constraints
 
-# In[85]:
+# In[22]:
 
 
 print("\n" + "=" * 80)
@@ -1521,7 +1521,7 @@ optimization_results = route_optimizer.optimize_route(
 print("\n🎉 Model 2A training complete!")
 
 
-# In[86]:
+# In[23]:
 
 
 print("\n" + "=" * 70)
@@ -1554,7 +1554,7 @@ print(f"   • Improvement: {optimization_results['best_result'].get('improvemen
 # **Objective**: Handle address changes before and during delivery  
 # **Capabilities**: Impact analysis, batch processing, real-time adjustments
 
-# In[87]:
+# In[24]:
 
 
 class RelocationTracker:
@@ -1924,7 +1924,7 @@ class DynamicRerouter:
         }
 
 
-# In[88]:
+# In[25]:
 
 
 print("\n" + "=" * 80)
@@ -1975,7 +1975,7 @@ rerouting_result = dynamic_rerouter.execute_rerouting(
 print("\n🎉 Dynamic rerouting complete!")
 
 
-# In[89]:
+# In[26]:
 
 
 print("\n" + "=" * 80)
@@ -2079,7 +2079,7 @@ print("\n✅ Visualization saved: smart_postal_ml_evaluation.png")
 plt.show()
 
 
-# In[90]:
+# In[27]:
 
 
 print("\n" + "=" * 80)
@@ -2096,7 +2096,7 @@ print("   • training_data_priority.csv")
 print("   • smart_postal_ml_evaluation.png")
 
 
-# In[91]:
+# In[28]:
 
 
 print("\n" + "=" * 80)
