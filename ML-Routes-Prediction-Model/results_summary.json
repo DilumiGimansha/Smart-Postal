@@ -14,9 +14,9 @@
   "model2a_best_distance": 119.01,
   "model2b_relocations": 3,
   "model2b_impact": {
-    "distance_saved_km": -25.99,
-    "time_saved_hours": -1.06,
-    "urgent_improvement": -2,
-    "distance_change_pct": 14.33
+    "distance_saved_km": -46.85,
+    "time_saved_hours": -2.26,
+    "urgent_improvement": 0,
+    "distance_change_pct": 27.66
   }
 }
