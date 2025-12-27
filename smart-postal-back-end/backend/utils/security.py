@@ -19,11 +19,18 @@ def get_cipher():
         key = base64.urlsafe_b64encode(key[:32].ljust(32, b'0'))
     return Fernet(key)
 
+def _truncate_password(password: str) -> str:
+    """Truncate password to 72 bytes for bcrypt compatibility"""
+    # bcrypt has a max password length of 72 bytes
+    return password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
+
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    truncated = _truncate_password(password)
+    return pwd_context.hash(truncated)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    truncated = _truncate_password(plain_password)
+    return pwd_context.verify(truncated, hashed_password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
