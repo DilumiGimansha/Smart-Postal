@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Postal Route Optimization System</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .leaflet-container { height: 100%; width: 100%; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const API_BASE = 'http://localhost:8000/api';
+
+        // Map Component
+        const MapView = ({ deliveries, route, center, zoom = 13, showRoute = false }) => {
+            const mapRef = useRef(null);
+            const mapInstanceRef = useRef(null);
+
+            useEffect(() => {
+                if (!mapRef.current || mapInstanceRef.current) return;
+
+                const map = L.map(mapRef.current).setView([center.lat, center.lng], zoom);
+                
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors'
+                }).addTo(map);
+
+                mapInstanceRef.current = map;
+
+                return () => {
+                    if (mapInstanceRef.current) {
+                        mapInstanceRef.current.remove();
+                        mapInstanceRef.current = null;
+                    }
+                };
+            }, []);
+
+            useEffect(() => {
+                if (!mapInstanceRef.current || !deliveries) return;
+
+                const map = mapInstanceRef.current;
+                
+                // Clear existing layers
+                map.eachLayer((layer) => {
+                    if (layer instanceof L.Marker || layer instanceof L.Polyline) {
+                        map.removeLayer(layer);
+                    }
+                });
+
+                // Add delivery markers
+                deliveries.forEach((delivery, index) => {
+                    const isUrgent = delivery.priority === 'urgent';
+                    const icon = L.divIcon({
+                        className: 'custom-marker',
+                        html: `<div style="background-color: ${isUrgent ? '#ef4444' : '#3b82f6'}; 
+                                color: white; border-radius: 50%; width: 30px; height: 30px; 
+                                display: flex; align-items: center; justify-content: center;
+                                font-weight: bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">
+                                ${index + 1}
+                              </div>`,
+                        iconSize: [30, 30]
+                    });
+
+                    L.marker([delivery.latitude, delivery.longitude], { icon })
+                        .bindPopup(`
+                            <strong>${delivery.address}</strong><br>
+                            Type: ${delivery.mail_type}<br>
+                            Priority: <span style="color: ${isUrgent ? '#ef4444' : '#3b82f6'}">${delivery.priority}</span>
+                        `)
+                        .addTo(map);
+                });
+
+                // Draw route if provided
+                if (showRoute && route && route.length > 0) {
+                    const routeCoords = route.map(d => [d.latitude, d.longitude]);
+                    
+                    L.polyline(routeCoords, {
+                        color: '#8b5cf6',
+                        weight: 3,
+                        opacity: 0.7,
+                        dashArray: '10, 5'
+                    }).addTo(map);
+
+                    // Add depot marker
+                    L.marker([center.lat, center.lng], {
+                        icon: L.divIcon({
+                            className: 'depot-marker',
+                            html: '<div style="background-color: #10b981; color: white; border-radius: 50%; width: 35px; height: 35px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.4);">🏤</div>',
+                            iconSize: [35, 35]
+                        })
+                    }).bindPopup('Postal Depot').addTo(map);
+                }
+
+                // Fit bounds to show all markers
+                if (deliveries.length > 0) {
+                    const bounds = L.latLngBounds(
+                        deliveries.map(d => [d.latitude, d.longitude])
+                    );
+                    map.fitBounds(bounds, { padding: [50, 50] });
+                }
+            }, [deliveries, route, showRoute]);
+
+            return <div ref={mapRef} style={{ height: '100%', width: '100%' }} />;
+        };
+
+        // Function 1: Priority Mail Classification & Routing
+        const Function1 = () => {
+            const [zones, setZones] = useState([]);
+            const [selectedZone, setSelectedZone] = useState(null);
+            const [deliveries, setDeliveries] = useState([]);
+            const [optimizedRoute, setOptimizedRoute] = useState(null);
+            const [loading, setLoading] = useState(false);
+
+            useEffect(() => {
+                fetchZones();
+            }, []);
+
+            const fetchZones = async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/postal-zones`);
+                    const data = await response.json();
+                    setZones(data.zones);
+                } catch (error) {
+                    console.error('Error fetching zones:', error);
+                }
+            };
+
+            const handleZoneSelect = async (zoneId) => {
+                setSelectedZone(zoneId);
+                setOptimizedRoute(null);
+                
+                try {
+                    const response = await fetch(`${API_BASE}/deliveries/${zoneId}`);
+                    const data = await response.json();
+                    setDeliveries(data.deliveries);
+                } catch (error) {
+                    console.error('Error fetching deliveries:', error);
+                }
+            };
+
+            const optimizeRoute = async () => {
+                if (!selectedZone || deliveries.length === 0) return;
+
+                setLoading(true);
+                try {
+                    const response = await fetch(`${API_BASE}/optimize-postal-route`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            zone_id: selectedZone,
+                            deliveries: deliveries.map(d => ({
+                                address: d.address,
+                                latitude: d.latitude,
+                                longitude: d.longitude,
+                                mail_type: d.mail_type,
+                                priority: d.priority
+                            }))
+                        })
+                    });
+                    const data = await response.json();
+                    setOptimizedRoute(data.optimized_route);
+                } catch (error) {
+                    console.error('Error optimizing route:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const selectedZoneData = zones.find(z => z.zone_id === selectedZone);
+            const center = selectedZoneData ? 
+                { lat: selectedZoneData.boundary_coordinates[0].lat, 
+                  lng: selectedZoneData.boundary_coordinates[0].lng } :
+                { lat: 6.9271, lng: 79.8612 };
+
+            return (
+                <div className="h-screen flex flex-col">
+                    <div className="bg-blue-600 text-white p-4">
+                        <h1 className="text-2xl font-bold">Function 1: Priority Mail Classification & Routing</h1>
+                    </div>
+
+                    <div className="flex-1 flex">
+                        {/* Control Panel */}
+                        <div className="w-96 bg-gray-50 p-4 overflow-y-auto border-r">
+                            <div className="space-y-4">
+                                {/* Zone Selection */}
+                                <div>
+                                    <label className="block text-sm font-semibold mb-2">Select Postal Zone</label>
+                                    <select 
+                                        className="w-full p-2 border rounded"
+                                        value={selectedZone || ''}
+                                        onChange={(e) => handleZoneSelect(Number(e.target.value))}
+                                    >
+                                        <option value="">Choose a zone...</option>
+                                        {zones.map(zone => (
+                                            <option key={zone.zone_id} value={zone.zone_id}>
+                                                {zone.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Statistics */}
+                                {selectedZone && (
+                                    <div className="bg-white p-4 rounded shadow">
+                                        <h3 className="font-semibold mb-2">Zone Statistics</h3>
+                                        <div className="space-y-1 text-sm">
+                                            <p>📦 Total Deliveries: {deliveries.length}</p>
+                                            <p className="text-red-600">🔴 Urgent: {deliveries.filter(d => d.priority === 'urgent').length}</p>
+                                            <p className="text-blue-600">🔵 Regular: {deliveries.filter(d => d.priority === 'regular').length}</p>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Deliveries List */}
+                                {deliveries.length > 0 && (
+                                    <div className="bg-white p-4 rounded shadow max-h-64 overflow-y-auto">
+                                        <h3 className="font-semibold mb-2">Deliveries</h3>
+                                        <div className="space-y-2">
+                                            {deliveries.map((delivery, idx) => (
+                                                <div key={idx} className="text-xs p-2 border rounded bg-gray-50">
+                                                    <div className="font-semibold">{delivery.address}</div>
+                                                    <div className="text-gray-600">{delivery.mail_type}</div>
+                                                    <span className={`inline-block px-2 py-1 rounded text-xs ${
+                                                        delivery.priority === 'urgent' ? 
+                                                        'bg-red-100 text-red-700' : 
+                                                        'bg-blue-100 text-blue-700'
+                                                    }`}>
+                                                        {delivery.priority}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Optimize Button */}
+                                {deliveries.length > 0 && (
+                                    <button
+                                        onClick={optimizeRoute}
+                                        disabled={loading}
+                                        className="w-full bg-blue-600 text-white py-3 rounded font-semibold hover:bg-blue-700 disabled:bg-gray-400"
+                                    >
+                                        {loading ? 'Optimizing...' : '🚀 Generate Postal Route'}
+                                    </button>
+                                )}
+
+                                {/* Metrics */}
+                                {optimizedRoute && (
+                                    <div className="bg-white p-4 rounded shadow">
+                                        <h3 className="font-semibold mb-3">📊 Performance Metrics</h3>
+                                        <div className="space-y-2 text-sm">
+                                            <div className="flex justify-between">
+                                                <span>Total Distance:</span>
+                                                <strong>{optimizedRoute.metrics.total_distance} km</strong>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span>Est. Time:</span>
+                                                <strong>{optimizedRoute.metrics.estimated_time} min</strong>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span>Urgent Before Noon:</span>
+                                                <strong className="text-green-600">
+                                                    {optimizedRoute.metrics.urgent_before_noon_percentage}%
+                                                </strong>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span>Distance Saved:</span>
+                                                <strong className="text-purple-600">
+                                                    {optimizedRoute.metrics.distance_saved_percentage}%
+                                                </strong>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span>Service Coverage:</span>
+                                                <strong className="text-blue-600">
+                                                    {optimizedRoute.metrics.universal_service_compliance}%
+                                                </strong>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Map View */}
+                        <div className="flex-1 relative">
+                            {selectedZone ? (
+                                <MapView 
+                                    deliveries={deliveries}
+                                    route={optimizedRoute ? optimizedRoute.deliveries : null}
+                                    center={center}
+                                    showRoute={!!optimizedRoute}
+                                />
+                            ) : (
+                                <div className="flex items-center justify-center h-full bg-gray-100">
+                                    <p className="text-gray-500 text-lg">Select a postal zone to view map</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Function 2: Multi-Factor Re-routing
+        const Function2 = () => {
+            const [zones, setZones] = useState([]);
+            const [selectedZone, setSelectedZone] = useState(null);
+            const [deliveries, setDeliveries] = useState([]);
+            const [originalRoute, setOriginalRoute] = useState(null);
+            const [disruptions, setDisruptions] = useState({
+                type: 'traffic',
+                severity: 0.5,
+                weather: 'Clear',
+                relocation_from: null,
+                relocation_to: null
+            });
+            const [reroutingResult, setReroutingResult] = useState(null);
+            const [loading, setLoading] = useState(false);
+
+            useEffect(() => {
+                fetchZones();
+            }, []);
+
+            const fetchZones = async () => {
+                try {
+                    const response = await fetch(`${API_BASE}/postal-zones`);
+                    const data = await response.json();
+                    setZones(data.zones);
+                } catch (error) {
+                    console.error('Error fetching zones:', error);
+                }
+            };
+
+            const handleZoneSelect = async (zoneId) => {
+                setSelectedZone(zoneId);
+                setReroutingResult(null);
+                
+                try {
+                    const response = await fetch(`${API_BASE}/deliveries/${zoneId}`);
+                    const data = await response.json();
+                    setDeliveries(data.deliveries);
+
+                    // Generate initial route
+                    const routeResponse = await fetch(`${API_BASE}/optimize-postal-route`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            zone_id: zoneId,
+                            deliveries: data.deliveries.map(d => ({
+                                address: d.address,
+                                latitude: d.latitude,
+                                longitude: d.longitude,
+                                mail_type: d.mail_type,
+                                priority: d.priority
+                            }))
+                        })
+                    });
+                    const routeData = await routeResponse.json();
+                    setOriginalRoute(routeData);
+                } catch (error) {
+                    console.error('Error:', error);
+                }
+            };
+
+            const applyDisruptions = async () => {
+                if (!originalRoute) return;
+
+                setLoading(true);
+                try {
+                    const response = await fetch(`${API_BASE}/calculate-rerouting`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            route_id: originalRoute.route_id,
+                            disruptions: disruptions
+                        })
+                    });
+                    const data = await response.json();
+                    setReroutingResult(data);
+                } catch (error) {
+                    console.error('Error calculating re-routing:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const selectedZoneData = zones.find(z => z.zone_id === selectedZone);
+            const center = selectedZoneData ? 
+                { lat: selectedZoneData.boundary_coordinates[0].lat, 
+                  lng: selectedZoneData.boundary_coordinates[0].lng } :
+                { lat: 6.9271, lng: 79.8612 };
+
+            return (
+                <div className="h-screen flex flex-col">
+                    <div className="bg-purple-600 text-white p-4">
+                        <h1 className="text-2xl font-bold">Function 2: Multi-Factor Re-routing Engine</h1>
+                    </div>
+
+                    <div className="flex-1 flex">
+                        {/* Control Panel */}
+                        <div className="w-96 bg-gray-50 p-4 overflow-y-auto border-r">
+                            <div className="space-y-4">
+                                {/* Zone Selection */}
+                                <div>
+                                    <label className="block text-sm font-semibold mb-2">Select Postal Zone</label>
+                                    <select 
+                                        className="w-full p-2 border rounded"
+                                        value={selectedZone || ''}
+                                        onChange={(e) => handleZoneSelect(Number(e.target.value))}
+                                    >
+                                        <option value="">Choose a zone...</option>
+                                        {zones.map(zone => (
+                                            <option key={zone.zone_id} value={zone.zone_id}>
+                                                {zone.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* Disruption Controls */}
+                                {originalRoute && (
+                                    <>
+                                        <div className="bg-white p-4 rounded shadow">
+                                            <h3 className="font-semibold mb-3">🚧 Simulate Disruptions</h3>
+                                            
+                                            {/* Traffic */}
+                                            <div className="mb-4">
+                                                <label className="flex items-center mb-2">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        className="mr-2"
+                                                        checked={disruptions.type === 'traffic'}
+                                                        onChange={(e) => setDisruptions({
+                                                            ...disruptions, 
+                                                            type: e.target.checked ? 'traffic' : ''
+                                                        })}
+                                                    />
+                                                    <span className="font-semibold">Traffic Congestion</span>
+                                                </label>
+                                                {disruptions.type === 'traffic' && (
+                                                    <div>
+                                                        <label className="text-xs text-gray-600">Severity: {(disruptions.severity * 100).toFixed(0)}%</label>
+                                                        <input 
+                                                            type="range" 
+                                                            min="0" 
+                                                            max="1" 
+                                                            step="0.1"
+                                                            value={disruptions.severity}
+                                                            onChange={(e) => setDisruptions({
+                                                                ...disruptions, 
+                                                                severity: parseFloat(e.target.value)
+                                                            })}
+                                                            className="w-full"
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Weather */}
+                                            <div className="mb-4">
+                                                <label className="block font-semibold mb-2">Weather Conditions</label>
+                                                <select 
+                                                    className="w-full p-2 border rounded text-sm"
+                                                    value={disruptions.weather}
+                                                    onChange={(e) => setDisruptions({
+                                                        ...disruptions, 
+                                                        weather: e.target.value
+                                                    })}
+                                                >
+                                                    <option value="Clear">☀️ Clear</option>
+                                                    <option value="Light Rain">🌧️ Light Rain</option>
+                                                    <option value="Heavy Rain">⛈️ Heavy Rain</option>
+                                                    <option value="Flooding">🌊 Flooding</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={applyDisruptions}
+                                            disabled={loading}
+                                            className="w-full bg-purple-600 text-white py-3 rounded font-semibold hover:bg-purple-700 disabled:bg-gray-400"
+                                        >
+                                            {loading ? 'Calculating...' : '🔄 Apply Disruptions & Recalculate'}
+                                        </button>
+
+                                        {/* Decision Factors */}
+                                        {reroutingResult && (
+                                            <div className="bg-white p-4 rounded shadow">
+                                                <h3 className="font-semibold mb-3">📊 Decision Factors</h3>
+                                                <div className="space-y-2 text-sm">
+                                                    <div className="flex justify-between">
+                                                        <span>Traffic Impact:</span>
+                                                        <strong>{reroutingResult.factors.traffic_impact.toFixed(2)}</strong>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span>Weather Impact:</span>
+                                                        <strong>{reroutingResult.factors.weather_impact.toFixed(2)}</strong>
+                                                    </div>
+                                                    <div className="flex justify-between">
+                                                        <span>Relocation Impact:</span>
+                                                        <strong>{reroutingResult.factors.relocation_impact.toFixed(2)}</strong>
+                                                    </div>
+                                                    <hr className="my-2" />
+                                                    <div className="flex justify-between">
+                                                        <span className="font-semibold">Combined Score:</span>
+                                                        <strong className={reroutingResult.impact_score > 0.6 ? 'text-red-600' : 'text-green-600'}>
+                                                            {reroutingResult.impact_score.toFixed(2)}
+                                                        </strong>
+                                                    </div>
+                                                    <div className={`mt-2 p-2 rounded text-center ${
+                                                        reroutingResult.requires_rerouting ? 
+                                                        'bg-red-100 text-red-700' : 
+                                                        'bg-green-100 text-green-700'
+                                                    }`}>
+                                                        {reroutingResult.requires_rerouting ? 
+                                                            '⚠️ Re-routing Required' : 
+                                                            '✅ No Re-routing Needed'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Split Map View */}
+                        <div className="flex-1 flex">
+                            {/* Original Route */}
+                            <div className="flex-1 flex flex-col border-r">
+                                <div className="bg-blue-100 p-2 text-center font-semibold">
+                                    Original Route
+                                </div>
+                                <div className="flex-1">
+                                    {originalRoute ? (
+                                        <MapView 
+                                            deliveries={deliveries}
+                                            route={originalRoute.optimized_route.deliveries}
+                                            center={center}
+                                            showRoute={true}
+                                        />
+                                    ) : (
+                                        <div className="flex items-center justify-center h-full bg-gray-100">
+                                            <p className="text-gray-500">Select a zone to view route</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Adapted Route */}
+                            <div className="flex-1 flex flex-col">
+                                <div className="bg-purple-100 p-2 text-center font-semibold">
+                                    Adapted Route (After Disruptions)
+                                </div>
+                                <div className="flex-1">
+                                    {reroutingResult && reroutingResult.new_route ? (
+                                        <MapView 
+                                            deliveries={deliveries}
+                                            route={reroutingResult.new_route.deliveries}
+                                            center={center}
+                                            showRoute={true}
+                                        />
+                                    ) : (
+                                        <div className="flex items-center justify-center h-full bg-gray-100">
+                                            <p className="text-gray-500">
+                                                {originalRoute ? 
+                                                    'Apply disruptions to see adapted route' : 
+                                                    'Select a zone to view route'}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Main App with Navigation
+        const App = () => {
+            const [currentFunction, setCurrentFunction] = useState(1);
+
+            return (
+                <div className="h-screen flex flex-col">
+                    {/* Navigation */}
+                    <nav className="bg-gray-800 text-white">
+                        <div className="flex">
+                            <button
+                                onClick={() => setCurrentFunction(1)}
+                                className={`flex-1 py-4 px-6 font-semibold transition ${
+                                    currentFunction === 1 ? 
+                                    'bg-blue-600' : 
+                                    'hover:bg-gray-700'
+                                }`}
+                            >
+                                Function 1: Route Optimization
+                            </button>
+                            <button
+                                onClick={() => setCurrentFunction(2)}
+                                className={`flex-1 py-4 px-6 font-semibold transition ${
+                                    currentFunction === 2 ? 
+                                    'bg-purple-600' : 
+                                    'hover:bg-gray-700'
+                                }`}
+                            >
+                                Function 2: Re-routing Engine
+                            </button>
+                        </div>
+                    </nav>
+
+                    {/* Content */}
+                    <div className="flex-1 overflow-hidden">
+                        {currentFunction === 1 ? <Function1 /> : <Function2 />}
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
