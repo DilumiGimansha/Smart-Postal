@@ -1,22 +1,22 @@
 {
   "model1_metrics": {
-    "accuracy": 0.972,
-    "precision": 0.9646739130434783,
+    "accuracy": 0.973,
+    "precision": 0.9673024523160763,
     "recall": 0.9594594594594594,
-    "f1_score": 0.962059620596206,
-    "roc_auc": 0.9763041613041613,
+    "f1_score": 0.9633649932157394,
+    "roc_auc": 0.9744358644358645,
     "cv_recall_mean": 0.9526614750343564,
     "cv_recall_std": 0.015591215414459823,
-    "cv_precision_mean": 0.9658412053188513,
-    "cv_precision_std": 0.008514211069999587
+    "cv_precision_mean": 0.9697777845233615,
+    "cv_precision_std": 0.006380938575581702
   },
   "model2a_best_method": "2opt",
   "model2a_best_distance": 119.01,
   "model2b_relocations": 3,
   "model2b_impact": {
-    "distance_saved_km": 8.02,
-    "time_saved_hours": 0.45,
-    "urgent_improvement": -1,
-    "distance_change_pct": -3.64
+    "distance_saved_km": -46.85,
+    "time_saved_hours": -2.26,
+    "urgent_improvement": 0,
+    "distance_change_pct": 27.66
   }
 }
