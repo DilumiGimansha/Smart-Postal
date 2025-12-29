@@ -1,14 +1,21 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import mysql.connector
 from datetime import datetime, timedelta
-import math
 import json
-from itertools import combinations
+import os
 
-app = FastAPI(title="Postal Route Optimization API")
+# Import ML models
+from postal_ml_webapp import (
+    PriorityClassificationModel,
+    DynamicRouteOptimizer,
+    DynamicRerouter,
+    RelocationTracker
+)
+
+app = FastAPI(title="Postal Route Optimization API with ML")
 
 # CORS configuration
 app.add_middleware(
@@ -19,12 +26,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Initialize ML models
+priority_classifier = PriorityClassificationModel()
+route_optimizer = DynamicRouteOptimizer()
+dynamic_rerouter = DynamicRerouter(route_optimizer)
+relocation_tracker = RelocationTracker()
+
+# Try to load pre-trained model
+MODEL_PATH = "priority_classifier_model.pkl"
+if os.path.exists(MODEL_PATH):
+    try:
+        priority_classifier.load_model(MODEL_PATH)
+        print("✓ Loaded pre-trained priority classification model")
+    except Exception as e:
+        print(f"⚠ Could not load model: {e}")
+
 # Database connection
 def get_db_connection():
     return mysql.connector.connect(
         host="localhost",
         user="root",
-        password="",  # Default XAMPP password
+        password="",
         database="postal_optimization"
     )
 
@@ -35,169 +57,78 @@ class DeliveryInput(BaseModel):
     longitude: float
     mail_type: str
     priority: Optional[str] = None
+    parcels: Optional[int] = 1
+    urgent: Optional[int] = 0
+    time_window: Optional[float] = None
 
 class RouteOptimizationRequest(BaseModel):
     zone_id: int
     deliveries: List[DeliveryInput]
+    methods: Optional[List[str]] = None
+    traffic_level: Optional[str] = "moderate"
+    weather_condition: Optional[str] = "clear"
 
-class DisruptionInput(BaseModel):
-    type: str
-    severity: Optional[float] = 0.0
-    weather: Optional[str] = "Clear"
-    relocation_from: Optional[Dict[str, float]] = None
-    relocation_to: Optional[Dict[str, float]] = None
+class PriorityClassificationInput(BaseModel):
+    mail_type: str
+    sender_type: str
+    recipient_type: str
+    time_received: str
+    day_of_week: str
 
-class ReRoutingRequest(BaseModel):
-    route_id: int
-    disruptions: DisruptionInput
+class TrainingDataInput(BaseModel):
+    training_data: List[Dict]
+    labels: List[str]
+
+class RelocationInput(BaseModel):
+    location_id: int
+    old_latitude: float
+    old_longitude: float
+    new_latitude: float
+    new_longitude: float
+    reason: Optional[str] = "customer_request"
+
+class ReroutingRequest(BaseModel):
+    scenario: Dict
+    relocations: List[Dict]
+    method: Optional[str] = "q_learning"
 
 # Helper Functions
-def calculate_distance(lat1, lon1, lat2, lon2):
-    """Calculate distance between two points using Haversine formula (in km)"""
-    R = 6371  # Earth radius in km
-    
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    
-    a = (math.sin(dlat / 2) * math.sin(dlat / 2) +
-         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
-         math.sin(dlon / 2) * math.sin(dlon / 2))
-    
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    distance = R * c
-    
-    return distance
-
-def classify_priority(mail_type: str) -> str:
-    """Simple rule-based priority classification"""
-    urgent_types = ['Court Notice', 'Registered Letter', 'Government Document']
-    return 'urgent' if mail_type in urgent_types else 'regular'
-
-def clarke_wright_savings(deliveries, depot={'lat': 6.9271, 'lng': 79.8612}):
-    """Modified Clarke-Wright Savings Algorithm with priority weighting"""
-    n = len(deliveries)
-    
-    # Calculate savings for all pairs
-    savings = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            dist_depot_i = calculate_distance(
-                depot['lat'], depot['lng'],
-                deliveries[i]['latitude'], deliveries[i]['longitude']
-            )
-            dist_depot_j = calculate_distance(
-                depot['lat'], depot['lng'],
-                deliveries[j]['latitude'], deliveries[j]['longitude']
-            )
-            dist_i_j = calculate_distance(
-                deliveries[i]['latitude'], deliveries[i]['longitude'],
-                deliveries[j]['latitude'], deliveries[j]['longitude']
-            )
-            
-            # Priority weight multiplier
-            priority_weight = 1.5 if (deliveries[i]['priority'] == 'urgent' or 
-                                     deliveries[j]['priority'] == 'urgent') else 1.0
-            
-            saving = (dist_depot_i + dist_depot_j - dist_i_j) * priority_weight
-            savings.append((saving, i, j))
-    
-    # Sort by savings (descending)
-    savings.sort(reverse=True, key=lambda x: x[0])
-    
-    # Build routes
-    routes = [[i] for i in range(n)]
-    route_map = {i: i for i in range(n)}
-    
-    for saving, i, j in savings:
-        route_i = route_map[i]
-        route_j = route_map[j]
-        
-        if route_i != route_j:
-            # Merge routes
-            new_route = routes[route_i] + routes[route_j]
-            routes[route_i] = new_route
-            routes[route_j] = []
-            
-            for idx in new_route:
-                route_map[idx] = route_i
-    
-    # Filter out empty routes and get the main route
-    final_route = [r for r in routes if r][0] if routes else list(range(n))
-    
-    # Sort urgent deliveries first
-    urgent_indices = [i for i in final_route if deliveries[i]['priority'] == 'urgent']
-    regular_indices = [i for i in final_route if deliveries[i]['priority'] == 'regular']
-    
-    return urgent_indices + regular_indices
-
-def calculate_route_metrics(route_sequence, deliveries, depot={'lat': 6.9271, 'lng': 79.8612}):
-    """Calculate performance metrics for a route"""
-    total_distance = 0
-    current_time = datetime.now().replace(hour=8, minute=0, second=0)  # Start at 8 AM
-    avg_speed = 20  # km/h in city traffic
-    
-    urgent_before_noon = 0
-    total_urgent = 0
-    
-    # Distance from depot to first delivery
-    if route_sequence:
-        first_delivery = deliveries[route_sequence[0]]
-        total_distance += calculate_distance(
-            depot['lat'], depot['lng'],
-            first_delivery['latitude'], first_delivery['longitude']
-        )
-        current_time += timedelta(hours=total_distance / avg_speed)
-    
-    # Calculate distances and check deadlines
-    for i in range(len(route_sequence)):
-        delivery = deliveries[route_sequence[i]]
-        
-        if delivery['priority'] == 'urgent':
-            total_urgent += 1
-            if current_time.hour < 12:
-                urgent_before_noon += 1
-        
-        if i < len(route_sequence) - 1:
-            next_delivery = deliveries[route_sequence[i + 1]]
-            distance = calculate_distance(
-                delivery['latitude'], delivery['longitude'],
-                next_delivery['latitude'], next_delivery['longitude']
-            )
-            total_distance += distance
-            current_time += timedelta(hours=distance / avg_speed + 0.083)  # 5 min stop
-    
-    # Distance back to depot
-    if route_sequence:
-        last_delivery = deliveries[route_sequence[-1]]
-        total_distance += calculate_distance(
-            last_delivery['latitude'], last_delivery['longitude'],
-            depot['lat'], depot['lng']
-        )
-    
-    urgent_percentage = (urgent_before_noon / total_urgent * 100) if total_urgent > 0 else 100
-    estimated_time = int(total_distance / avg_speed * 60)  # minutes
-    
-    # Calculate savings vs sequential route
-    sequential_distance = sum([
-        calculate_distance(
-            deliveries[i]['latitude'], deliveries[i]['longitude'],
-            deliveries[i + 1]['latitude'], deliveries[i + 1]['longitude']
-        ) for i in range(len(deliveries) - 1)
-    ])
-    distance_saved = max(0, (sequential_distance - total_distance) / sequential_distance * 100)
-    
-    return {
-        'total_distance': round(total_distance, 2),
-        'estimated_time': estimated_time,
-        'urgent_before_noon_percentage': round(urgent_percentage, 1),
-        'distance_saved_percentage': round(distance_saved, 1),
-        'universal_service_compliance': 100.0
+def get_traffic_factor(level: str) -> float:
+    """Convert traffic level to factor"""
+    factors = {
+        'low': 0.9,
+        'moderate': 1.0,
+        'high': 1.3,
+        'severe': 1.6
     }
+    return factors.get(level, 1.0)
+
+def get_weather_factor(condition: str) -> float:
+    """Convert weather condition to factor"""
+    factors = {
+        'clear': 1.0,
+        'light_rain': 1.1,
+        'heavy_rain': 1.3,
+        'flooding': 1.8
+    }
+    return factors.get(condition, 1.0)
+
+def format_route_for_map(route_sequence, deliveries):
+    """Format route for frontend map display"""
+    return [deliveries[i] for i in route_sequence if i < len(deliveries)]
 
 # API Endpoints
 @app.get("/")
 def read_root():
-    return {"message": "Postal Route Optimization API", "status": "running"}
+    return {
+        "message": "Postal Route Optimization API with ML",
+        "status": "running",
+        "ml_models": {
+            "priority_classifier": priority_classifier.is_trained,
+            "route_optimizer": "loaded",
+            "dynamic_rerouter": "loaded"
+        }
+    }
 
 @app.get("/api/postal-zones")
 def get_postal_zones():
@@ -209,7 +140,6 @@ def get_postal_zones():
         cursor.execute("SELECT * FROM postal_zones")
         zones = cursor.fetchall()
         
-        # Parse JSON boundary coordinates
         for zone in zones:
             zone['boundary_coordinates'] = json.loads(zone['boundary_coordinates'])
         
@@ -243,49 +173,119 @@ def get_deliveries(zone_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/optimize-postal-route")
-def optimize_postal_route(request: RouteOptimizationRequest):
-    """Optimize route for given deliveries"""
+@app.post("/api/ml/classify-priority")
+def classify_priority_ml(mail_data: PriorityClassificationInput):
+    """Classify mail priority using XGBoost ML model"""
+    try:
+        if not priority_classifier.is_trained:
+            # Fallback to rule-based
+            urgent_types = ['Court Notice', 'Legal Document', 'Registered Letter', 
+                          'Speed Post', 'Express Mail', 'Tax Document']
+            priority = 'urgent' if mail_data.mail_type in urgent_types else 'regular'
+            return {
+                'priority': priority,
+                'confidence': 0.85,
+                'probability_regular': 0.15 if priority == 'urgent' else 0.85,
+                'probability_urgent': 0.85 if priority == 'urgent' else 0.15,
+                'method': 'rule_based'
+            }
+        
+        result = priority_classifier.predict(mail_data.dict())
+        result['method'] = 'ml_xgboost'
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ml/train-classifier")
+def train_priority_classifier(data: TrainingDataInput):
+    """Train the priority classification model"""
+    try:
+        result = priority_classifier.train(data.training_data, data.labels)
+        
+        # Save trained model
+        priority_classifier.save_model(MODEL_PATH)
+        
+        return {
+            "status": "success",
+            "message": "Model trained and saved successfully",
+            "model_path": MODEL_PATH
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ml/optimize-route")
+def optimize_route_ml(request: RouteOptimizationRequest):
+    """Optimize route using ML algorithms (Q-Learning, 2-Opt, etc.)"""
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         
-        # Prepare delivery data
-        deliveries = []
-        for delivery in request.deliveries:
-            priority = delivery.priority or classify_priority(delivery.mail_type)
-            deliveries.append({
+        # Prepare delivery points for ML model
+        delivery_points = [
+            {
+                'id': 0,
+                'address': 'Postal Depot',
+                'latitude': 6.9271,
+                'longitude': 79.8612,
+                'parcels': 0,
+                'urgent': 0
+            }
+        ]
+        
+        for idx, delivery in enumerate(request.deliveries, start=1):
+            point = {
+                'id': idx,
                 'address': delivery.address,
                 'latitude': delivery.latitude,
                 'longitude': delivery.longitude,
-                'mail_type': delivery.mail_type,
-                'priority': priority
-            })
+                'parcels': delivery.parcels or 1,
+                'urgent': delivery.urgent or (1 if delivery.priority == 'urgent' else 0),
+                'time_window': delivery.time_window or (4.0 if delivery.priority == 'urgent' else 8.0)
+            }
+            delivery_points.append(point)
         
-        # Run optimization algorithm
-        optimized_sequence = clarke_wright_savings(deliveries)
-        
-        # Calculate metrics
-        metrics = calculate_route_metrics(optimized_sequence, deliveries)
-        
-        # Prepare route data
-        route_data = {
-            'sequence': optimized_sequence,
-            'deliveries': [deliveries[i] for i in optimized_sequence],
-            'metrics': metrics
+        # Create scenario
+        scenario = {
+            'delivery_points': delivery_points,
+            'traffic_factor': get_traffic_factor(request.traffic_level),
+            'weather_factor': get_weather_factor(request.weather_condition),
+            'traffic_level': request.traffic_level,
+            'weather_condition': request.weather_condition
         }
         
-        # Save to database
+        # Optimize using multiple methods
+        methods = request.methods or ['nearest_neighbor', 'urgent_priority', '2opt', 'q_learning']
+        optimization_result = route_optimizer.optimize_route(scenario, methods)
+        
+        # Format results for frontend
+        formatted_results = {}
+        for method, result in optimization_result['results'].items():
+            formatted_results[method] = {
+                'route_sequence': result['route'],
+                'deliveries': format_route_for_map(result['route'], delivery_points),
+                'total_distance_km': result['total_distance_km'],
+                'total_time_hours': result['total_time_hours'],
+                'urgent_on_time': result['urgent_on_time'],
+                'improvement_pct': result.get('improvement_pct', 0),
+                'method': result['method']
+            }
+        
+        # Save best route to database
+        best_result = optimization_result['best_result']
         cursor.execute("""
             INSERT INTO optimized_routes 
             (zone_id, delivery_sequence, total_distance, estimated_time, metrics)
             VALUES (%s, %s, %s, %s, %s)
         """, (
             request.zone_id,
-            json.dumps(optimized_sequence),
-            metrics['total_distance'],
-            metrics['estimated_time'],
-            json.dumps(metrics)
+            json.dumps(best_result['route']),
+            best_result['total_distance_km'],
+            int(best_result['total_time_hours'] * 60),
+            json.dumps({
+                'urgent_on_time': best_result['urgent_on_time'],
+                'method': optimization_result['best_method'],
+                'improvement_pct': best_result.get('improvement_pct', 0)
+            })
         ))
         
         conn.commit()
@@ -295,226 +295,141 @@ def optimize_postal_route(request: RouteOptimizationRequest):
         conn.close()
         
         return {
-            "route_id": route_id,
-            "optimized_route": route_data
+            'route_id': route_id,
+            'best_method': optimization_result['best_method'],
+            'results': formatted_results,
+            'best_result': formatted_results[optimization_result['best_method']],
+            'scenario': {
+                'traffic_level': request.traffic_level,
+                'weather_condition': request.weather_condition,
+                'traffic_factor': scenario['traffic_factor'],
+                'weather_factor': scenario['weather_factor']
+            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/classify-priority")
-def classify_mail_priority(mail_type: str):
-    """Classify mail priority based on type"""
-    priority = classify_priority(mail_type)
-    confidence = 0.95 if priority == 'urgent' else 0.90
-    
-    return {
-        "mail_type": mail_type,
-        "priority": priority,
-        "confidence": confidence
-    }
-
-@app.get("/api/route/{route_id}")
-def get_route(route_id: int):
-    """Get specific route details"""
+@app.post("/api/ml/register-relocation")
+def register_relocation(relocation: RelocationInput):
+    """Register a customer address relocation"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        cursor.execute("""
-            SELECT * FROM optimized_routes WHERE route_id = %s
-        """, (route_id,))
-        
-        route = cursor.fetchone()
-        
-        if not route:
-            raise HTTPException(status_code=404, detail="Route not found")
-        
-        route['delivery_sequence'] = json.loads(route['delivery_sequence'])
-        route['metrics'] = json.loads(route['metrics'])
-        
-        cursor.close()
-        conn.close()
-        
-        return route
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/calculate-rerouting")
-def calculate_rerouting(request: ReRoutingRequest):
-    """Calculate re-routing based on disruptions"""
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        # Get original route
-        cursor.execute("""
-            SELECT * FROM optimized_routes WHERE route_id = %s
-        """, (request.route_id,))
-        
-        original_route = cursor.fetchone()
-        if not original_route:
-            raise HTTPException(status_code=404, detail="Route not found")
-        
-        # Get deliveries for this route
-        cursor.execute("""
-            SELECT * FROM deliveries WHERE zone_id = %s
-        """, (original_route['zone_id'],))
-        
-        deliveries = cursor.fetchall()
-        
-        # Calculate multi-factor decision score
-        traffic_weight = 0.4
-        weather_weight = 0.3
-        relocation_weight = 0.3
-        
-        # Traffic impact
-        traffic_impact = request.disruptions.severity if request.disruptions.type == 'traffic' else 0.0
-        
-        # Weather impact
-        weather_impacts = {
-            'Clear': 0.0,
-            'Light Rain': 0.3,
-            'Heavy Rain': 0.6,
-            'Flooding': 0.9
-        }
-        weather_impact = weather_impacts.get(request.disruptions.weather, 0.0)
-        
-        # Relocation impact
-        relocation_impact = 0.0
-        if request.disruptions.relocation_from and request.disruptions.relocation_to:
-            distance = calculate_distance(
-                request.disruptions.relocation_from['lat'],
-                request.disruptions.relocation_from['lng'],
-                request.disruptions.relocation_to['lat'],
-                request.disruptions.relocation_to['lng']
-            )
-            relocation_impact = min(distance / 5.0, 1.0)  # Normalize to 0-1
-        
-        # Calculate combined score
-        combined_score = (
-            traffic_weight * traffic_impact +
-            weather_weight * weather_impact +
-            relocation_weight * relocation_impact
+        result = relocation_tracker.register_relocation(
+            location_id=relocation.location_id,
+            old_coords=(relocation.old_latitude, relocation.old_longitude),
+            new_coords=(relocation.new_latitude, relocation.new_longitude),
+            reason=relocation.reason
         )
-        
-        requires_rerouting = combined_score > 0.6
-        
-        # If re-routing needed, recalculate route
-        new_route = None
-        if requires_rerouting:
-            optimized_sequence = clarke_wright_savings(deliveries)
-            metrics = calculate_route_metrics(optimized_sequence, deliveries)
-            
-            new_route = {
-                'sequence': optimized_sequence,
-                'deliveries': [deliveries[i] for i in optimized_sequence],
-                'metrics': metrics
-            }
-        
-        # Save decision
-        cursor.execute("""
-            INSERT INTO rerouting_decisions 
-            (original_route_id, factors, impact_score, action_taken)
-            VALUES (%s, %s, %s, %s)
-        """, (
-            request.route_id,
-            json.dumps({
-                'traffic_impact': traffic_impact,
-                'weather_impact': weather_impact,
-                'relocation_impact': relocation_impact
-            }),
-            combined_score,
-            'rerouted' if requires_rerouting else 'no_action'
-        ))
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-        
-        return {
-            "requires_rerouting": requires_rerouting,
-            "impact_score": round(combined_score, 2),
-            "factors": {
-                "traffic_impact": round(traffic_impact, 2),
-                "weather_impact": round(weather_impact, 2),
-                "relocation_impact": round(relocation_impact, 2)
-            },
-            "new_route": new_route,
-            "original_route": {
-                'sequence': json.loads(original_route['delivery_sequence']),
-                'metrics': json.loads(original_route['metrics'])
-            }
-        }
-    except HTTPException:
-        raise
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/suggest-handoff")
-def suggest_handoff(
-    item_address: str,
-    original_zone_id: int,
-    new_latitude: float,
-    new_longitude: float
-):
-    """Suggest postman handoff for relocated delivery"""
+@app.get("/api/ml/active-relocations")
+def get_active_relocations():
+    """Get all pending relocations"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        
-        # Find closest postman in nearby zones
-        cursor.execute("""
-            SELECT p.postman_id, p.name, p.zone_id, p.contact, z.name as zone_name
-            FROM postmen p
-            JOIN postal_zones z ON p.zone_id = z.zone_id
-            WHERE p.zone_id != %s
-            ORDER BY RAND()
-            LIMIT 1
-        """, (original_zone_id,))
-        
-        receiving_postman = cursor.fetchone()
-        
-        if not receiving_postman:
-            raise HTTPException(status_code=404, detail="No available postman found")
-        
-        # Calculate meeting point (midpoint)
-        meeting_point = {
-            'lat': new_latitude,
-            'lng': new_longitude
-        }
-        
-        # Insert handoff recommendation
-        cursor.execute("""
-            INSERT INTO postman_handoffs
-            (original_postman_id, receiving_postman_id, 
-             meeting_point_lat, meeting_point_lng, status)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (
-            original_zone_id,  # Using zone_id as simplified postman_id
-            receiving_postman['postman_id'],
-            meeting_point['lat'],
-            meeting_point['lng'],
-            'pending'
-        ))
-        
-        conn.commit()
-        handoff_id = cursor.lastrowid
-        
-        cursor.close()
-        conn.close()
-        
-        return {
-            "handoff_id": handoff_id,
-            "receiving_postman": receiving_postman,
-            "meeting_point": meeting_point,
-            "estimated_time": "14:30"
-        }
-    except HTTPException:
-        raise
+        relocations = relocation_tracker.get_active_relocations()
+        return {"relocations": relocations, "count": len(relocations)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ml/analyze-relocation-impact")
+def analyze_relocation_impact(scenario: Dict, relocation: Dict):
+    """Analyze impact of address change on route"""
+    try:
+        impact = dynamic_rerouter.analyze_relocation_impact(scenario, relocation)
+        return impact
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ml/execute-rerouting")
+def execute_rerouting(request: ReroutingRequest):
+    """Execute dynamic rerouting with ML"""
+    try:
+        result = dynamic_rerouter.execute_rerouting(
+            scenario=request.scenario,
+            relocations=request.relocations,
+            method=request.method
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/ml/compare-algorithms")
+def compare_algorithms(request: RouteOptimizationRequest):
+    """Compare all optimization algorithms side-by-side"""
+    try:
+        # Prepare delivery points
+        delivery_points = [{'id': 0, 'address': 'Depot', 'latitude': 6.9271, 
+                           'longitude': 79.8612, 'parcels': 0, 'urgent': 0}]
+        
+        for idx, delivery in enumerate(request.deliveries, start=1):
+            delivery_points.append({
+                'id': idx,
+                'address': delivery.address,
+                'latitude': delivery.latitude,
+                'longitude': delivery.longitude,
+                'parcels': delivery.parcels or 1,
+                'urgent': 1 if delivery.priority == 'urgent' else 0,
+                'time_window': 4.0 if delivery.priority == 'urgent' else 8.0
+            })
+        
+        scenario = {
+            'delivery_points': delivery_points,
+            'traffic_factor': get_traffic_factor(request.traffic_level),
+            'weather_factor': get_weather_factor(request.weather_condition),
+            'traffic_level': request.traffic_level,
+            'weather_condition': request.weather_condition
+        }
+        
+        # Run all methods
+        methods = ['nearest_neighbor', 'urgent_priority', '2opt', 'q_learning']
+        results = route_optimizer.optimize_route(scenario, methods)
+        
+        # Format comparison
+        comparison = []
+        for method in methods:
+            result = results['results'][method]
+            comparison.append({
+                'method': method,
+                'display_name': result['method'],
+                'distance_km': result['total_distance_km'],
+                'time_hours': result['total_time_hours'],
+                'urgent_success': result['urgent_on_time'],
+                'improvement_pct': result.get('improvement_pct', 0),
+                'route': format_route_for_map(result['route'], delivery_points),
+                'is_best': method == results['best_method']
+            })
+        
+        return {
+            'comparison': comparison,
+            'best_method': results['best_method'],
+            'scenario': scenario
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/ml/model-info")
+def get_model_info():
+    """Get information about loaded ML models"""
+    return {
+        'priority_classifier': {
+            'loaded': priority_classifier.is_trained,
+            'model_type': 'XGBoost',
+            'features': len(priority_classifier.feature_names) if priority_classifier.is_trained else 0,
+            'mail_types': len(priority_classifier.MAIL_TYPES),
+            'sender_types': len(priority_classifier.SENDER_TYPES)
+        },
+        'route_optimizer': {
+            'algorithms': ['Nearest Neighbor', 'Urgent Priority', '2-Opt', 'Q-Learning'],
+            'q_table_size': len(route_optimizer.q_table),
+            'learning_rate': route_optimizer.learning_rate,
+            'discount_factor': route_optimizer.discount_factor
+        },
+        'rerouting_system': {
+            'active_relocations': len(relocation_tracker.active_relocations),
+            'rerouting_history': len(dynamic_rerouter.rerouting_history)
+        }
+    }
 
 @app.get("/api/route-statistics")
 def get_route_statistics():
@@ -533,11 +448,7 @@ def get_route_statistics():
         
         stats = cursor.fetchone()
         
-        cursor.execute("""
-            SELECT COUNT(*) as total_deliveries
-            FROM deliveries
-        """)
-        
+        cursor.execute("SELECT COUNT(*) as total_deliveries FROM deliveries")
         delivery_stats = cursor.fetchone()
         
         cursor.close()
