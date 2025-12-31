@@ -1,16 +1,30 @@
 import { Package, ShieldCheck } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useDatabase } from '../../context/MockDatabaseContext';
+import { useState, useEffect } from 'react';
 
 const ClientDashboard = () => {
     const { orders } = useDatabase();
     const navigate = useNavigate();
+    const [userName, setUserName] = useState('Client');
+
+    useEffect(() => {
+        const userStr = localStorage.getItem('user');
+        if (userStr) {
+            try {
+                const user = JSON.parse(userStr);
+                setUserName(user.full_name || 'Client');
+            } catch (e) {
+                console.error('Error parsing user data');
+            }
+        }
+    }, []);
 
     return (
         <div className="flex flex-col h-full bg-gray-50">
             <header className="bg-white p-4 shadow-sm">
                 <h1 className="text-lg font-bold text-gray-800">My Parcels</h1>
-                <p className="text-xs text-gray-500">Welcome back, Client</p>
+                <p className="text-xs text-gray-500">Welcome back, {userName}</p>
             </header>
 
             <div className="p-4 flex flex-col gap-4">

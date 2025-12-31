@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     
-    # Database - defaults to MySQL for development
-    DATABASE_URL: str = "mysql+pymysql://root:root@localhost:3306/delivery_system"
+    # Database - defaults to MySQL for development (XAMPP has no password by default)
+    DATABASE_URL: str = "mysql+pymysql://root@localhost:3306/delivery_system"
     DB_POOL_SIZE: int = 20
     DB_MAX_OVERFLOW: int = 0
     

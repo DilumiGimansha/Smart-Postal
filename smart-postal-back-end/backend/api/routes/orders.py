@@ -69,7 +69,14 @@ async def list_orders(
     if current_user.role == UserRole.CUSTOMER:
         query = query.filter(Order.customer_id == current_user.id)
     elif current_user.role == UserRole.COURIER:
-        query = query.filter(Order.courier_id == current_user.id)
+        # Couriers can see: their assigned orders OR unassigned pending orders
+        from sqlalchemy import or_
+        query = query.filter(
+            or_(
+                Order.courier_id == current_user.id,
+                Order.courier_id == None  # Unassigned orders
+            )
+        )
     # Admin can see all orders
     
     # Apply status filter
@@ -100,11 +107,13 @@ async def get_order(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to view this order"
         )
-    elif current_user.role == UserRole.COURIER and order.courier_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to view this order"
-        )
+    elif current_user.role == UserRole.COURIER:
+        # Couriers can view their assigned orders OR unassigned orders
+        if order.courier_id is not None and order.courier_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to view this order"
+            )
     
     return order
 
