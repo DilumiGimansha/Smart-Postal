@@ -1,92 +1,103 @@
-# How to Enable Gemini Pro TTS (Achernar Voice)
+# Gemini 2.5 Pro TTS Setup for Sinhala
 
-## Problem
-Gemini TTS models (like gemini-2.5-pro-tts) use Vertex AI backend, which requires:
-- Active billing with valid payment method
-- Service Account authentication (API keys aren't sufficient)
+## Overview
 
-## Solution: Create Service Account
+Gemini 2.5 Pro TTS provides **premium quality** Sinhala text-to-speech via the Google Cloud Text-to-Speech v1beta1 API. This is the best option for natural Sinhala pronunciation.
 
-### Step 1: Create Service Account
-1. Go to: https://console.cloud.google.com/iam-admin/serviceaccounts?project=582560921998
+## Requirements
+
+The Gemini TTS model requires:
+1. **Google Cloud project** with both APIs enabled:
+   - Cloud Text-to-Speech API
+   - Vertex AI API
+2. **Billing** enabled on your project
+3. **API key** with the `aiplatform.endpoints.predict` permission
+
+## Current Status
+
+⚠️ Your current API key (`GOOGLE_CLOUD_TTS_API_KEY`) doesn't have Vertex AI permissions.
+
+The system will automatically **fallback to Azure TTS** which also provides good quality Sinhala with the neural voice `si-LK-SameeraNeural`.
+
+## Option A: Enable Gemini TTS (Best Quality)
+
+### Step 1: Enable Vertex AI API
+1. Go to: https://console.cloud.google.com/apis/api/aiplatform.googleapis.com
+2. Click "ENABLE"
+
+### Step 2: Create Service Account (Recommended)
+API keys can't easily get Vertex AI permissions. Use a service account instead:
+
+1. Go to: https://console.cloud.google.com/iam-admin/serviceaccounts
 2. Click "CREATE SERVICE ACCOUNT"
-3. Name: `tts-service-account`
-4. Click "CREATE AND CONTINUE"
+3. Name: `tts-gemini-service`
+4. Grant roles:
+   - **Cloud Text-to-Speech User** (`roles/texttospeech.user`)
+   - **Vertex AI User** (`roles/aiplatform.user`)
+5. Create JSON key and download
 
-### Step 2: Grant Roles
-Add these roles:
-- ✅ **Cloud Text-to-Speech User** (roles/texttospeech.user)
-- ✅ **Vertex AI User** (roles/aiplatform.user)
-
-Click "CONTINUE" → "DONE"
-
-### Step 3: Create Key
-1. Click on the service account you just created
-2. Go to "KEYS" tab
-3. Click "ADD KEY" → "Create new key"
-4. Choose "JSON"
-5. Download the JSON file
-
-### Step 4: Configure in Your Project
-1. Save the JSON file to:
-   `smart-postal-back-end/backend/config/service-account-key.json`
-
-2. Update `.env`:
-   ```env
-   # Service Account for Gemini TTS
-   GOOGLE_APPLICATION_CREDENTIALS=config/service-account-key.json
-   COURIERBOT_TTS_ENGINE=gemini
-   ```
-
-3. The code will use the service account automatically when the file exists.
-
-### Step 5: Verify Billing
-1. Go to: https://console.cloud.google.com/billing
-2. Ensure billing account is linked to project 582560921998
-3. Ensure you have a valid payment method
-4. Gemini TTS is paid (no free tier), but very affordable:
-   - ~$0.10 per 1 million characters (10x cheaper than shown in your screenshot!)
-
-## Alternative: Use Neural2 Voices (If Available)
-
-If Gemini TTS is too expensive or complex, try Neural2 voices:
-- Same quality level as Gemini TTS
-- Don't require Vertex AI permissions
-- Use standard Text-to-Speech API
-- Require billing but no service account
+### Step 3: Configure Service Account
+Save the JSON key to:
+```
+smart-postal-back-end/backend/config/service-account-gemini.json
+```
 
 Update `.env`:
 ```env
-COURIERBOT_TTS_ENGINE=google
+GOOGLE_APPLICATION_CREDENTIALS=config/service-account-gemini.json
+COURIERBOT_TTS_ENGINE=gemini
 ```
 
-Then we'll update the code to request Neural2 voices specifically.
+### Step 4: Update Code
+Update the `synthesize_gemini_tts()` function in `assistant.py` to use OAuth2 credentials instead of API key authentication for Vertex AI access.
 
-## Fallback: Use Standard Voices (Free)
+## Option B: Use Azure TTS (Current Fallback - Good Quality)
 
-Already configured! Change `.env`:
+Azure TTS is already working with your current setup:
+- Voice: `si-LK-SameeraNeural` (male, neural quality)
+- No additional setup needed
+- Good Sinhala pronunciation
+
+This is the **current default** when Gemini fails.
+
+## Option C: Use Standard Google TTS (Free Tier Available)
+
+Standard Google voices are available with your current API key:
 ```env
 COURIERBOT_TTS_ENGINE=google
 ```
 
-Standard voices work now (no billing, no service account needed).
-Quality is lower but it's free and works immediately.
+Quality is lower than Neural/Gemini but it's free for up to 4M characters/month.
 
-## Cost Comparison
+## TTS Priority Order
 
-| Voice Type | Quality | Free Tier | Paid Cost | Requires |
-|------------|---------|-----------|-----------|----------|
-| Standard | ⭐⭐ Basic | 4M chars/month | $4/1M after | Nothing |
-| Neural2 | ⭐⭐⭐⭐ Good | None | $16/1M | Billing |
-| Gemini Pro | ⭐⭐⭐⭐⭐ Best | None | $0.10/1M | Billing + Service Account |
+The current code tries TTS engines in this order:
+1. **Gemini 2.5 Pro TTS** (if API permissions work)
+2. **Azure Neural TTS** (fallback - currently working)
 
-**Your typical query:** ~50 characters
-**100K queries/month:** 5M characters = **$0.50 with Gemini TTS!**
+## Voice Options for Gemini TTS
 
-## Next Steps
+When Gemini is working, you can choose these voices:
+- **Achernar** (default) - Warm, professional
+- **Achird** - Clear, articulate
+- **Charon** - Deep, authoritative  
+- **Fenrir** - Energetic
+- **Kore** - Gentle, calm
+- **Puck** - Friendly, approachable
 
-**Option A:** Create service account (15 minutes) → Get Gemini TTS ⭐⭐⭐⭐⭐
-**Option B:** Try Neural2 (2 minutes) → Good quality ⭐⭐⭐⭐
-**Option C:** Use Standard (works now) → Basic quality ⭐⭐
+Set in `.env`:
+```env
+GEMINI_TTS_VOICE=Achernar
+```
 
-Which would you prefer?
+## Testing
+
+Test the current TTS configuration:
+```bash
+python quick_voice_check.py
+```
+
+Test Gemini directly:
+```bash
+python test_gemini_direct.py
+```
