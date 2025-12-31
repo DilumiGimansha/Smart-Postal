@@ -13,6 +13,10 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         .leaflet-container { height: 100%; width: 100%; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
     </style>
 </head>
 <body>
@@ -59,8 +63,9 @@
         };
 
         const MapView = ({ deliveries, route, center, zoom = 13, showRoute = false, 
-                          comparisonMode = false, originalRoute = null, originalRouteLabel = '', 
-                          newRouteLabel = '', relocatedPoint = null, comparisonType = 'conditions' }) => {
+                          comparisonMode = false, baselineRoute = null, optimalRoute = null,
+                          showLabels = true, relocationMode = false, relocationData = null,
+                          beforeDeliveries = null, afterDeliveries = null }) => {
             const mapRef = useRef(null);
             const mapInstanceRef = useRef(null);
 
@@ -98,109 +103,172 @@
                     }
                 });
 
-                // Show comparison mode with before/after routes
-                if (comparisonMode && originalRoute && route) {
-                    // Draw original route (blue dashed)
-                    const originalCoords = originalRoute.map(d => [d.latitude, d.longitude]);
-                    L.polyline(originalCoords, {
+                // Relocation mode: show before/after with relocation indicator
+                if (relocationMode && relocationData && baselineRoute && optimalRoute) {
+                    // Draw before route (blue dashed)
+                    const beforeCoords = baselineRoute.map(d => [d.latitude, d.longitude]);
+                    L.polyline(beforeCoords, {
                         color: '#3b82f6',
                         weight: 5,
-                        opacity: 0.7,
+                        opacity: 0.6,
                         dashArray: '15, 10'
-                    }).addTo(map).bindPopup(`<strong style="color: #3b82f6; font-size: 14px;">${originalRouteLabel}</strong>`);
+                    }).addTo(map).bindPopup('<strong style="color: #3b82f6;">📍 Before Relocation</strong>');
 
-                    // Draw new route (red solid)
-                    const newCoords = route.map(d => [d.latitude, d.longitude]);
-                    L.polyline(newCoords, {
-                        color: '#ef4444',
+                    // Draw after route (green solid)
+                    const afterCoords = optimalRoute.map(d => [d.latitude, d.longitude]);
+                    L.polyline(afterCoords, {
+                        color: '#10b981',
                         weight: 5,
                         opacity: 0.9
-                    }).addTo(map).bindPopup(`<strong style="color: #ef4444; font-size: 14px;">${newRouteLabel}</strong>`);
+                    }).addTo(map).bindPopup('<strong style="color: #10b981;">📍 After Relocation</strong>');
 
-                    // For relocation comparison, show the relocation marker and line
-                    if (comparisonType === 'relocation' && relocatedPoint) {
-                        // Mark old location
-                        L.marker([relocatedPoint.old_latitude, relocatedPoint.old_longitude], {
-                            icon: L.divIcon({
-                                className: 'old-location-marker',
-                                html: '<div style="background: #9ca3af; color: white; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 3px solid white; box-shadow: 0 3px 8px rgba(0,0,0,0.4); font-size: 16px;">📍</div>',
-                                iconSize: [36, 36]
-                            })
-                        }).bindPopup(`
-                            <div style="min-width: 200px;">
-                                <strong style="font-size: 14px; color: #9ca3af;">OLD LOCATION</strong><br>
-                                <div style="margin-top: 8px; font-size: 12px;">
-                                    <strong>Coordinates:</strong><br>
-                                    ${relocatedPoint.old_latitude.toFixed(4)}, ${relocatedPoint.old_longitude.toFixed(4)}
-                                </div>
+                    // Mark old location
+                    L.marker([relocationData.old_latitude, relocationData.old_longitude], {
+                        icon: L.divIcon({
+                            className: 'old-location-marker',
+                            html: '<div style="background: #9ca3af; color: white; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 3px solid white; box-shadow: 0 3px 8px rgba(0,0,0,0.4); font-size: 18px;">📍</div>',
+                            iconSize: [40, 40]
+                        })
+                    }).bindPopup(`
+                        <div style="min-width: 200px;">
+                            <strong style="font-size: 14px; color: #9ca3af;">OLD LOCATION</strong><br>
+                            <div style="margin-top: 8px; font-size: 12px;">
+                                <strong>Address:</strong><br>${relocationData.address.substring(0, 50)}...<br>
+                                <strong>Coordinates:</strong><br>
+                                ${relocationData.old_latitude.toFixed(4)}, ${relocationData.old_longitude.toFixed(4)}
                             </div>
-                        `).addTo(map);
+                        </div>
+                    `).addTo(map);
 
-                        // Mark new location
-                        L.marker([relocatedPoint.new_latitude, relocatedPoint.new_longitude], {
-                            icon: L.divIcon({
-                                className: 'new-location-marker',
-                                html: '<div style="background: linear-gradient(135deg, #f59e0b, #ef4444); color: white; border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 4px solid white; box-shadow: 0 4px 12px rgba(0,0,0,0.6); font-size: 20px; animation: pulse 2s infinite;">📍</div>',
-                                iconSize: [44, 44]
-                            })
-                        }).bindPopup(`
-                            <div style="min-width: 220px;">
-                                <strong style="font-size: 16px; color: #f59e0b;">🔄 NEW LOCATION</strong><br>
-                                <div style="margin-top: 8px;">
-                                    <strong>Old Address:</strong><br/>${relocatedPoint.address.substring(0, 40)}...<br/>
-                                    ${relocatedPoint.new_address ? `<strong>New Address:</strong><br/>${relocatedPoint.new_address.substring(0, 40)}...<br/>` : ''}
-                                    <strong>Coordinates:</strong><br>
-                                    ${relocatedPoint.new_latitude.toFixed(4)}, ${relocatedPoint.new_longitude.toFixed(4)}<br>
-                                    <strong style="color: #ef4444;">Distance Moved:</strong> ${relocatedPoint.distance_change_km} km
-                                </div>
+                    // Mark new location
+                    L.marker([relocationData.new_latitude, relocationData.new_longitude], {
+                        icon: L.divIcon({
+                            className: 'new-location-marker',
+                            html: '<div style="background: linear-gradient(135deg, #f59e0b, #ef4444); color: white; border-radius: 50%; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 4px solid white; box-shadow: 0 4px 12px rgba(0,0,0,0.6); font-size: 22px;">📍</div>',
+                            iconSize: [48, 48]
+                        })
+                    }).bindPopup(`
+                        <div style="min-width: 220px;">
+                            <strong style="font-size: 16px; color: #f59e0b;">📍 NEW LOCATION</strong><br>
+                            <div style="margin-top: 8px;">
+                                <strong>New Address:</strong><br>${relocationData.new_address || 'Custom Coordinates'}<br>
+                                <strong>Coordinates:</strong><br>
+                                ${relocationData.new_latitude.toFixed(4)}, ${relocationData.new_longitude.toFixed(4)}<br>
+                                <strong style="color: #ef4444;">Distance Moved:</strong> ${relocationData.distance_change_km} km
                             </div>
-                        `).addTo(map);
+                        </div>
+                    `).addTo(map);
 
-                        // Draw line showing relocation
-                        L.polyline([
-                            [relocatedPoint.old_latitude, relocatedPoint.old_longitude],
-                            [relocatedPoint.new_latitude, relocatedPoint.new_longitude]
-                        ], {
-                            color: '#f59e0b',
-                            weight: 4,
-                            opacity: 0.8,
-                            dashArray: '8, 8'
-                        }).addTo(map).bindPopup('<strong style="color: #f59e0b;">Customer Relocation Path</strong>');
-                    }
+                    // Draw line showing relocation
+                    L.polyline([
+                        [relocationData.old_latitude, relocationData.old_longitude],
+                        [relocationData.new_latitude, relocationData.new_longitude]
+                    ], {
+                        color: '#f59e0b',
+                        weight: 4,
+                        opacity: 0.8,
+                        dashArray: '10, 10'
+                    }).addTo(map).bindPopup('<strong style="color: #f59e0b;">🔄 Relocation Path</strong>');
 
                     // Add legend
                     const legend = L.control({ position: 'topright' });
                     legend.onAdd = function() {
-                        const div = L.DomUtil.create('div', 'bg-white p-3 rounded-lg shadow-lg border-2');
-                        if (comparisonType === 'relocation') {
-                            div.innerHTML = `
-                                <div style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">Route Comparison</div>
-                                <div style="display: flex; align-items: center; margin-bottom: 6px;">
-                                    <div style="width: 30px; height: 4px; background: #3b82f6; border: 2px dashed #3b82f6; margin-right: 8px;"></div>
-                                    <span style="font-size: 12px;">Before Relocation</span>
+                        const div = L.DomUtil.create('div', 'bg-white p-4 rounded-lg shadow-xl border-2');
+                        div.innerHTML = `
+                            <div style="font-weight: bold; margin-bottom: 12px; font-size: 16px; color: #1f2937;">Relocation Impact</div>
+                            <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                                <div style="width: 40px; height: 4px; background: #3b82f6; border: 2px dashed #3b82f6; margin-right: 10px;"></div>
+                                <span style="font-size: 13px;">Before</span>
+                            </div>
+                            <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                                <div style="width: 40px; height: 4px; background: #10b981; margin-right: 10px;"></div>
+                                <span style="font-size: 13px;">After</span>
+                            </div>
+                            <div style="display: flex; align-items: center;">
+                                <div style="width: 40px; height: 4px; background: #f59e0b; border: 2px dashed #f59e0b; margin-right: 10px;"></div>
+                                <span style="font-size: 13px;">Relocation</span>
+                            </div>
+                        `;
+                        return div;
+                    };
+                    legend.addTo(map);
+
+                    // Add all other delivery markers (excluding the relocated one)
+                    const displayDeliveries = afterDeliveries || deliveries;
+                    displayDeliveries.forEach((delivery, index) => {
+                        if (delivery.id === relocationData.location_id) return; // Skip relocated delivery
+                        
+                        const isUrgent = delivery.priority === 'urgent';
+                        
+                        const icon = L.divIcon({
+                            className: 'custom-marker',
+                            html: `<div style="background-color: ${isUrgent ? '#ef4444' : '#3b82f6'}; 
+                                    color: white; border-radius: 50%; width: 28px; height: 28px; 
+                                    display: flex; align-items: center; justify-content: center;
+                                    font-weight: bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3); font-size: 12px;">
+                                    •
+                                  </div>`,
+                            iconSize: [28, 28]
+                        });
+
+                        L.marker([delivery.latitude, delivery.longitude], { icon })
+                            .bindPopup(`
+                                <div style="min-width: 200px;">
+                                    <strong style="font-size: 14px;">${delivery.address}</strong><br>
+                                    <div style="margin-top: 8px;">
+                                        <strong>Priority:</strong> <span style="color: ${isUrgent ? '#ef4444' : '#3b82f6'}; font-weight: bold;">${(delivery.priority || 'regular').toUpperCase()}</span>
+                                    </div>
                                 </div>
-                                <div style="display: flex; align-items: center; margin-bottom: 6px;">
-                                    <div style="width: 30px; height: 4px; background: #ef4444; margin-right: 8px;"></div>
-                                    <span style="font-size: 12px;">After Relocation</span>
-                                </div>
-                                <div style="display: flex; align-items: center;">
-                                    <div style="width: 30px; height: 4px; background: #f59e0b; border: 2px dashed #f59e0b; margin-right: 8px;"></div>
-                                    <span style="font-size: 12px;">Relocation Path</span>
-                                </div>
-                            `;
-                        } else {
-                            div.innerHTML = `
-                                <div style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">Route Comparison</div>
-                                <div style="display: flex; align-items: center; margin-bottom: 6px;">
-                                    <div style="width: 30px; height: 4px; background: #3b82f6; border: 2px dashed #3b82f6; margin-right: 8px;"></div>
-                                    <span style="font-size: 12px;">${originalRouteLabel}</span>
-                                </div>
-                                <div style="display: flex; align-items: center;">
-                                    <div style="width: 30px; height: 4px; background: #ef4444; margin-right: 8px;"></div>
-                                    <span style="font-size: 12px;">${newRouteLabel}</span>
-                                </div>
-                            `;
-                        }
+                            `)
+                            .addTo(map);
+                    });
+
+                    // Fit bounds
+                    const allCoords = [
+                        ...displayDeliveries.map(d => [d.latitude, d.longitude]),
+                        [relocationData.old_latitude, relocationData.old_longitude],
+                        [relocationData.new_latitude, relocationData.new_longitude]
+                    ];
+                    const bounds = L.latLngBounds(allCoords);
+                    map.fitBounds(bounds, { padding: [50, 50] });
+
+                    return; // Exit early for relocation mode
+                }
+
+                // Comparison mode: show baseline vs optimal
+                if (comparisonMode && baselineRoute && optimalRoute) {
+                    // Draw baseline route (blue dashed)
+                    const baselineCoords = baselineRoute.map(d => [d.latitude, d.longitude]);
+                    L.polyline(baselineCoords, {
+                        color: '#3b82f6',
+                        weight: 5,
+                        opacity: 0.6,
+                        dashArray: '15, 10'
+                    }).addTo(map).bindPopup('<strong style="color: #3b82f6; font-size: 14px;">📍 Baseline Route (Nearest Neighbor)</strong>');
+
+                    // Draw optimal route (green solid)
+                    const optimalCoords = optimalRoute.map(d => [d.latitude, d.longitude]);
+                    L.polyline(optimalCoords, {
+                        color: '#10b981',
+                        weight: 5,
+                        opacity: 0.9
+                    }).addTo(map).bindPopup('<strong style="color: #10b981; font-size: 14px;">🎯 Optimal Route (ML Optimized)</strong>');
+
+                    // Add legend
+                    const legend = L.control({ position: 'topright' });
+                    legend.onAdd = function() {
+                        const div = L.DomUtil.create('div', 'bg-white p-4 rounded-lg shadow-xl border-2');
+                        div.innerHTML = `
+                            <div style="font-weight: bold; margin-bottom: 12px; font-size: 16px; color: #1f2937;">Route Comparison</div>
+                            <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                                <div style="width: 40px; height: 4px; background: #3b82f6; border: 2px dashed #3b82f6; margin-right: 10px;"></div>
+                                <span style="font-size: 13px;">Baseline (NN)</span>
+                            </div>
+                            <div style="display: flex; align-items: center;">
+                                <div style="width: 40px; height: 4px; background: #10b981; margin-right: 10px;"></div>
+                                <span style="font-size: 13px;">Optimal (ML)</span>
+                            </div>
+                        `;
                         return div;
                     };
                     legend.addTo(map);
@@ -209,12 +277,6 @@
                 // Standard route display
                 deliveries.forEach((delivery, index) => {
                     const isUrgent = delivery.priority === 'urgent';
-                    const isRelocated = relocatedPoint && delivery.id === relocatedPoint.location_id;
-                    
-                    // Skip if this is the relocated point in comparison mode (we already marked it)
-                    if (comparisonMode && comparisonType === 'relocation' && isRelocated) {
-                        return;
-                    }
                     
                     const icon = L.divIcon({
                         className: 'custom-marker',
@@ -222,34 +284,33 @@
                                 color: white; border-radius: 50%; width: 32px; height: 32px; 
                                 display: flex; align-items: center; justify-content: center;
                                 font-weight: bold; border: 3px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.4);">
-                                ${index + 1}
+                                ${showLabels ? (index + 1) : '•'}
                               </div>`,
                         iconSize: [32, 32]
                     });
 
                     L.marker([delivery.latitude, delivery.longitude], { icon })
                         .bindPopup(`
-                            <div style="min-width: 200px;">
-                                <strong style="font-size: 14px;">${delivery.address}</strong><br>
-                                <div style="margin-top: 8px;">
-                                    <strong>Mail Type:</strong> ${delivery.mail_type || 'N/A'}<br>
-                                    <strong>Priority:</strong> <span style="color: ${isUrgent ? '#ef4444' : '#3b82f6'}; font-weight: bold;">${(delivery.priority || 'regular').toUpperCase()}</span><br>
-                                    <strong>Sequence:</strong> #${index + 1}
+                            <div style="min-width: 220px;">
+                                <strong style="font-size: 15px;">${delivery.address}</strong><br>
+                                <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #e5e7eb;">
+                                    <div style="margin-bottom: 4px;"><strong>Mail Type:</strong> ${delivery.mail_type || 'N/A'}</div>
+                                    <div style="margin-bottom: 4px;"><strong>Priority:</strong> <span style="color: ${isUrgent ? '#ef4444' : '#3b82f6'}; font-weight: bold;">${(delivery.priority || 'regular').toUpperCase()}</span></div>
+                                    ${showLabels ? `<div><strong>Sequence:</strong> #${index + 1}</div>` : ''}
                                 </div>
                             </div>
                         `)
                         .addTo(map);
                 });
 
-                // Draw route if not in comparison mode
+                // Draw single route if not in comparison mode
                 if (showRoute && route && route.length > 0 && !comparisonMode) {
                     const routeCoords = route.map(d => [d.latitude, d.longitude]);
                     
                     L.polyline(routeCoords, {
-                        color: '#8b5cf6',
-                        weight: 4,
-                        opacity: 0.7,
-                        dashArray: '10, 5'
+                        color: '#10b981',
+                        weight: 5,
+                        opacity: 0.8
                     }).addTo(map);
                 }
 
@@ -263,15 +324,11 @@
                 }).bindPopup('<strong>Postal Depot (Start/End)</strong>').addTo(map);
 
                 if (deliveries.length > 0) {
-                    const allCoords = [...deliveries.map(d => [d.latitude, d.longitude])];
-                    if (relocatedPoint && comparisonMode) {
-                        allCoords.push([relocatedPoint.old_latitude, relocatedPoint.old_longitude]);
-                        allCoords.push([relocatedPoint.new_latitude, relocatedPoint.new_longitude]);
-                    }
+                    const allCoords = deliveries.map(d => [d.latitude, d.longitude]);
                     const bounds = L.latLngBounds(allCoords);
                     map.fitBounds(bounds, { padding: [50, 50] });
                 }
-            }, [deliveries, route, showRoute, comparisonMode, originalRoute, originalRouteLabel, newRouteLabel, relocatedPoint, comparisonType]);
+            }, [deliveries, route, showRoute, comparisonMode, baselineRoute, optimalRoute, showLabels, relocationMode, relocationData, afterDeliveries]);
 
             return <div ref={mapRef} style={{ height: '100%', width: '100%' }} />;
         };
@@ -280,47 +337,35 @@
             const [zones, setZones] = useState([]);
             const [selectedZone, setSelectedZone] = useState(null);
             const [deliveries, setDeliveries] = useState([]);
-            const [optimizedRoute, setOptimizedRoute] = useState(null);
+            const [allRoutes, setAllRoutes] = useState(null);
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState(null);
             const [uploadProgress, setUploadProgress] = useState(null);
             const fileInputRef = useRef(null);
+
+            // View state
+            const [currentView, setCurrentView] = useState('upload'); // 'upload', 'mailList', 'routes', 'comparison', 'relocation'
 
             // Traffic and Weather state
             const [trafficLevel, setTrafficLevel] = useState('moderate');
             const [weatherCondition, setWeatherCondition] = useState('clear');
             
             // Comparison state
-            const [comparisonMode, setComparisonMode] = useState(false);
-            const [comparisonType, setComparisonType] = useState(null); // 'conditions' or 'relocation'
             const [comparisonRoutes, setComparisonRoutes] = useState(null);
+            const [compareTraffic, setCompareTraffic] = useState('high');
+            const [compareWeather, setCompareWeather] = useState('heavy_rain');
 
-            // Conditions comparison
-            const [newTrafficLevel, setNewTrafficLevel] = useState('high');
-            const [newWeatherCondition, setNewWeatherCondition] = useState('heavy_rain');
-
-            // Relocation comparison
+            // Relocation state
             const [selectedDeliveryId, setSelectedDeliveryId] = useState(null);
             const [newAddress, setNewAddress] = useState('');
             const [newLatitude, setNewLatitude] = useState('');
             const [newLongitude, setNewLongitude] = useState('');
             const [relocationData, setRelocationData] = useState(null);
-
-            // Tab state
-            const [activeTab, setActiveTab] = useState('conditions'); // 'conditions' or 'relocation'
+            const [relocationRoutes, setRelocationRoutes] = useState(null);
 
             useEffect(() => {
                 fetchZones();
             }, []);
-
-            useEffect(() => {
-                // Clear address fields when selecting a different delivery
-                if (selectedDeliveryId) {
-                    setNewAddress('');
-                    setNewLatitude('');
-                    setNewLongitude('');
-                }
-            }, [selectedDeliveryId]);
 
             const fetchZones = async () => {
                 try {
@@ -335,15 +380,16 @@
 
             const handleZoneSelect = async (zoneId) => {
                 setSelectedZone(zoneId);
-                setOptimizedRoute(null);
-                setError(null);
-                setComparisonMode(false);
+                setAllRoutes(null);
                 setComparisonRoutes(null);
+                setRelocationRoutes(null);
                 setRelocationData(null);
+                setSelectedDeliveryId(null);
                 setNewAddress('');
                 setNewLatitude('');
                 setNewLongitude('');
-                setSelectedDeliveryId(null);
+                setError(null);
+                setCurrentView('upload');
                 
                 if (zoneId) {
                     try {
@@ -365,7 +411,7 @@
                         body: JSON.stringify({
                             mail_type: mailData.mail_type,
                             sender_type: mailData.sender_type || 'Individual',
-                            recipient_type: mailData.recipient_type || 'Residential',
+                            recipient_type: mailData.recipient_type || 'Individual',
                             time_received: new Date().toISOString(),
                             day_of_week: new Date().toLocaleDateString('en-US', { weekday: 'long' })
                         })
@@ -432,7 +478,7 @@
                                     mail_type: row.mail_type,
                                     priority: priority,
                                     sender_type: row.sender_type || 'Individual',
-                                    recipient_type: row.recipient_type || 'Residential'
+                                    recipient_type: row.recipient_type || 'Individual'
                                 });
                             }
 
@@ -440,6 +486,7 @@
                             setUploadProgress(null);
                             setLoading(false);
                             setError(null);
+                            setCurrentView('mailList');
                             
                             alert(`Successfully processed ${processedDeliveries.length} deliveries!`);
                         } catch (error) {
@@ -459,20 +506,19 @@
                 event.target.value = '';
             };
 
-            const optimizeRoute = async (traffic = trafficLevel, weather = weatherCondition, customDeliveries = null) => {
+            const optimizeRoutes = async () => {
                 if (!selectedZone || deliveries.length === 0) return;
 
                 setLoading(true);
                 setError(null);
                 
                 try {
-                    const deliveryData = customDeliveries || deliveries;
                     const response = await fetch(`${API_BASE}/ml/optimize-route`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             zone_id: selectedZone,
-                            deliveries: deliveryData.map(d => ({
+                            deliveries: deliveries.map(d => ({
                                 address: d.address,
                                 latitude: d.latitude,
                                 longitude: d.longitude,
@@ -482,8 +528,8 @@
                                 urgent: d.priority === 'urgent' ? 1 : 0
                             })),
                             methods: ['nearest_neighbor', 'urgent_priority', '2opt', 'q_learning'],
-                            traffic_level: traffic,
-                            weather_condition: weather
+                            traffic_level: trafficLevel,
+                            weather_condition: weatherCondition
                         })
                     });
                     
@@ -492,72 +538,50 @@
                     }
                     
                     const data = await response.json();
-                    return data;
+                    setAllRoutes(data);
+                    setCurrentView('routes');
                 } catch (error) {
                     console.error('Error optimizing route:', error);
                     setError('Error optimizing route: ' + error.message);
-                    return null;
                 } finally {
                     setLoading(false);
                 }
             };
 
-            const handleOptimizeInitial = async () => {
-                const result = await optimizeRoute(trafficLevel, weatherCondition);
-                if (result) {
-                    const bestResult = result.best_result;
-                    setOptimizedRoute({
-                        deliveries: bestResult.deliveries.slice(1),
-                        metrics: {
-                            total_distance: bestResult.total_distance_km.toFixed(2),
-                            estimated_time: (bestResult.total_time_hours * 60).toFixed(0),
-                            urgent_before_noon_percentage: bestResult.urgent_on_time || 100,
-                            distance_saved_percentage: bestResult.improvement_pct?.toFixed(1) || 0,
-                            universal_service_compliance: 100
-                        },
-                        method: result.best_method,
-                        traffic: trafficLevel,
-                        weather: weatherCondition
-                    });
-                }
-            };
-
             const compareConditions = async () => {
-                if (!optimizedRoute) return;
+                if (!allRoutes) return;
 
                 setLoading(true);
                 setError(null);
 
                 try {
-                    const newResult = await optimizeRoute(newTrafficLevel, newWeatherCondition);
+                    const response = await fetch(`${API_BASE}/ml/optimize-route`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            zone_id: selectedZone,
+                            deliveries: deliveries.map(d => ({
+                                address: d.address,
+                                latitude: d.latitude,
+                                longitude: d.longitude,
+                                mail_type: d.mail_type,
+                                priority: d.priority,
+                                parcels: 1,
+                                urgent: d.priority === 'urgent' ? 1 : 0
+                            })),
+                            methods: ['nearest_neighbor', 'urgent_priority', '2opt', 'q_learning'],
+                            traffic_level: compareTraffic,
+                            weather_condition: compareWeather
+                        })
+                    });
                     
-                    if (newResult) {
-                        const newBestResult = newResult.best_result;
-                        
-                        setComparisonRoutes({
-                            original: {
-                                deliveries: optimizedRoute.deliveries,
-                                metrics: optimizedRoute.metrics,
-                                traffic: optimizedRoute.traffic,
-                                weather: optimizedRoute.weather
-                            },
-                            new: {
-                                deliveries: newBestResult.deliveries.slice(1),
-                                metrics: {
-                                    total_distance: newBestResult.total_distance_km.toFixed(2),
-                                    estimated_time: (newBestResult.total_time_hours * 60).toFixed(0),
-                                    urgent_before_noon_percentage: newBestResult.urgent_on_time || 100,
-                                    distance_saved_percentage: newBestResult.improvement_pct?.toFixed(1) || 0
-                                },
-                                traffic: newTrafficLevel,
-                                weather: newWeatherCondition,
-                                method: newResult.best_method
-                            }
-                        });
-                        
-                        setComparisonMode(true);
-                        setComparisonType('conditions');
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
                     }
+                    
+                    const data = await response.json();
+                    setComparisonRoutes(data);
+                    setCurrentView('comparison');
                 } catch (error) {
                     console.error('Error comparing conditions:', error);
                     setError('Error comparing conditions: ' + error.message);
@@ -571,8 +595,6 @@
 
                 setLoading(true);
                 setError(null);
-                setNewLatitude('');
-                setNewLongitude('');
 
                 try {
                     const coords = await geocodeAddress(newAddress);
@@ -584,7 +606,7 @@
                     } else if (coords.fallback) {
                         setNewLatitude(coords.latitude.toString());
                         setNewLongitude(coords.longitude.toString());
-                        setError('⚠️ Address not found precisely. Using approximate Colombo coordinates. Please adjust manually if needed.');
+                        setError('⚠️ Address not found precisely. Using approximate coordinates. Please adjust manually if needed.');
                     } else {
                         setError('Failed to geocode address. Please enter coordinates manually.');
                     }
@@ -597,7 +619,7 @@
             };
 
             const compareRelocation = async () => {
-                if (!optimizedRoute || !selectedDeliveryId || !newLatitude || !newLongitude) return;
+                if (!allRoutes || !selectedDeliveryId || !newLatitude || !newLongitude) return;
 
                 setLoading(true);
                 setError(null);
@@ -631,63 +653,56 @@
                     );
 
                     // Optimize with new location
-                    const newResult = await optimizeRoute(trafficLevel, weatherCondition, updatedDeliveries);
-                    
-                    if (newResult) {
-                        const newBestResult = newResult.best_result;
-                        
-                        setRelocationData({
-                            location_id: selectedDeliveryId,
-                            address: selectedDelivery.address,
-                            new_address: newAddress,
-                            old_latitude: oldLat,
-                            old_longitude: oldLon,
-                            new_latitude: newLat,
-                            new_longitude: newLon,
-                            distance_change_km: distanceChange
-                        });
+                    const response = await fetch(`${API_BASE}/ml/optimize-route`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            zone_id: selectedZone,
+                            deliveries: updatedDeliveries.map(d => ({
+                                address: d.address,
+                                latitude: d.latitude,
+                                longitude: d.longitude,
+                                mail_type: d.mail_type,
+                                priority: d.priority,
+                                parcels: 1,
+                                urgent: d.priority === 'urgent' ? 1 : 0
+                            })),
+                            methods: ['nearest_neighbor', 'urgent_priority', '2opt', 'q_learning'],
+                            traffic_level: trafficLevel,
+                            weather_condition: weatherCondition
+                        })
+                    });
 
-                        setComparisonRoutes({
-                            original: {
-                                deliveries: optimizedRoute.deliveries,
-                                metrics: optimizedRoute.metrics
-                            },
-                            new: {
-                                deliveries: newBestResult.deliveries.slice(1).map(d => {
-                                    if (d.id === selectedDeliveryId) {
-                                        return { ...d, latitude: newLat, longitude: newLon };
-                                    }
-                                    return d;
-                                }),
-                                metrics: {
-                                    total_distance: newBestResult.total_distance_km.toFixed(2),
-                                    estimated_time: (newBestResult.total_time_hours * 60).toFixed(0),
-                                    urgent_before_noon_percentage: newBestResult.urgent_on_time || 100,
-                                    distance_saved_percentage: newBestResult.improvement_pct?.toFixed(1) || 0
-                                },
-                                method: newResult.best_method
-                            }
-                        });
-                        
-                        setComparisonMode(true);
-                        setComparisonType('relocation');
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
                     }
+
+                    const newRouteData = await response.json();
+                    
+                    setRelocationData({
+                        location_id: selectedDeliveryId,
+                        address: selectedDelivery.address,
+                        new_address: newAddress,
+                        old_latitude: oldLat,
+                        old_longitude: oldLon,
+                        new_latitude: newLat,
+                        new_longitude: newLon,
+                        distance_change_km: distanceChange
+                    });
+
+                    setRelocationRoutes({
+                        original: allRoutes,
+                        new: newRouteData,
+                        updatedDeliveries: updatedDeliveries
+                    });
+                    
+                    setCurrentView('relocation');
                 } catch (error) {
                     console.error('Error comparing relocation:', error);
                     setError('Error comparing relocation: ' + error.message);
                 } finally {
                     setLoading(false);
                 }
-            };
-
-            const resetComparison = () => {
-                setComparisonMode(false);
-                setComparisonRoutes(null);
-                setComparisonType(null);
-                setRelocationData(null);
-                setNewAddress('');
-                setNewLatitude('');
-                setNewLongitude('');
             };
 
             const selectedZoneData = zones.find(z => z.zone_id === selectedZone);
@@ -713,10 +728,11 @@
                 <div className="h-screen flex flex-col">
                     <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4 shadow-lg">
                         <h1 className="text-2xl font-bold">📮 Postal Route Optimization System</h1>
-                        <p className="text-sm opacity-90">Intelligent routing with traffic, weather, and relocation impact analysis</p>
+                        <p className="text-sm opacity-90">ML-powered route optimization with baseline comparison</p>
                     </div>
 
                     <div className="flex-1 flex overflow-hidden">
+                        {/* Left Sidebar */}
                         <div className="w-96 bg-gray-50 overflow-y-auto border-r shadow-lg">
                             <div className="p-4 space-y-4">
                                 {error && (
@@ -735,6 +751,7 @@
                                     </div>
                                 )}
 
+                                {/* Zone Selection */}
                                 <div className="bg-white p-4 rounded-lg shadow">
                                     <label className="block text-sm font-bold mb-2 text-gray-700">
                                         🗺️ Select Postal Zone
@@ -753,10 +770,11 @@
                                     </select>
                                 </div>
 
-                                {selectedZone && (
+                                {/* CSV Upload */}
+                                {selectedZone && currentView === 'upload' && (
                                     <div className="bg-white p-4 rounded-lg shadow">
                                         <label className="block text-sm font-bold mb-2 text-gray-700">
-                                            📁 Upload Mail CSV
+                                            📄 Upload Mail CSV
                                         </label>
                                         <input
                                             ref={fileInputRef}
@@ -773,15 +791,15 @@
                                         >
                                             {loading ? '⏳ Processing...' : '📤 Upload CSV File'}
                                         </button>
-                                       
                                     </div>
                                 )}
 
-                                {selectedZone && deliveries.length > 0 && (
+                                {/* Mail Statistics */}
+                                {deliveries.length > 0 && (
                                     <div className="bg-white p-4 rounded-lg shadow">
                                         <h3 className="font-bold mb-3 text-gray-700 flex items-center">
                                             <span className="text-lg mr-2">📊</span> 
-                                            Zone Statistics
+                                            Mail Statistics
                                         </h3>
                                         <div className="space-y-2">
                                             <div className="flex justify-between items-center p-2 bg-gray-50 rounded">
@@ -800,7 +818,18 @@
                                     </div>
                                 )}
 
-                                {deliveries.length > 0 && !comparisonMode && (
+                                {/* View Mail List Button */}
+                                {deliveries.length > 0 && currentView !== 'mailList' && (
+                                    <button
+                                        onClick={() => setCurrentView('mailList')}
+                                        className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white py-3 rounded-lg font-semibold hover:from-indigo-600 hover:to-purple-700 transition-all shadow"
+                                    >
+                                        📋 View All Mail Classification
+                                    </button>
+                                )}
+
+                                {/* Traffic and Weather Controls */}
+                                {deliveries.length > 0 && currentView !== 'upload' && (
                                     <div className="bg-white p-4 rounded-lg shadow">
                                         <h3 className="font-bold mb-3 text-gray-700">
                                             🌍 Current Conditions
@@ -815,6 +844,7 @@
                                                     value={trafficLevel}
                                                     onChange={(e) => setTrafficLevel(e.target.value)}
                                                     className="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                                                    disabled={currentView === 'routes' || currentView === 'comparison'}
                                                 >
                                                     <option value="low">🟢 Low</option>
                                                     <option value="moderate">🟡 Moderate</option>
@@ -831,6 +861,7 @@
                                                     value={weatherCondition}
                                                     onChange={(e) => setWeatherCondition(e.target.value)}
                                                     className="w-full p-2 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
+                                                    disabled={currentView === 'routes' || currentView === 'comparison'}
                                                 >
                                                     <option value="clear">☀️ Clear</option>
                                                     <option value="light_rain">🌦️ Light Rain</option>
@@ -842,96 +873,81 @@
                                     </div>
                                 )}
 
-                                {deliveries.length > 0 && !comparisonMode && (
+                                {/* Optimize Button */}
+                                {deliveries.length > 0 && currentView === 'mailList' && (
                                     <button
-                                        onClick={handleOptimizeInitial}
+                                        onClick={optimizeRoutes}
                                         disabled={loading}
                                         className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-4 rounded-lg font-bold text-lg hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-500 transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-1"
                                     >
-                                        {loading ? '⏳ Optimizing Route...' : '🚀 Optimize Route'}
+                                        {loading ? '⏳ Optimizing...' : '🚀 Optimize Routes'}
                                     </button>
                                 )}
 
-                                {optimizedRoute && !comparisonMode && (
+                                {/* Route Comparison */}
+                                {allRoutes && currentView === 'routes' && (
                                     <div className="bg-gradient-to-br from-green-50 to-emerald-50 p-4 rounded-lg shadow-lg border-2 border-green-200">
                                         <h3 className="font-bold mb-3 text-gray-800 flex items-center text-lg">
                                             <span className="mr-2">✅</span> 
-                                            Route Optimized
+                                            Route Comparison Results
                                         </h3>
+
                                         <div className="space-y-3">
-                                            <div className="bg-white p-3 rounded-lg shadow">
-                                                <div className="text-xs text-gray-500 mb-1">
-                                                    {getTrafficIcon(optimizedRoute.traffic)} Traffic: <strong>{optimizedRoute.traffic}</strong> | 
-                                                    {getWeatherIcon(optimizedRoute.weather)} Weather: <strong>{optimizedRoute.weather}</strong>
+                                            {/* Baseline Route */}
+                                            <div className="bg-blue-100 p-3 rounded-lg border-2 border-blue-300">
+                                                <div className="font-bold text-blue-800 mb-2">
+                                                    📍 Baseline (Nearest Neighbor)
                                                 </div>
-                                            </div>
-                                            
-                                            <div className="bg-white p-3 rounded-lg shadow">
-                                                <div className="flex justify-between items-center">
-                                                    <span className="text-sm font-semibold text-gray-700">📏 Total Distance:</span>
-                                                    <span className="text-xl font-bold text-green-600">
-                                                        {optimizedRoute.metrics.total_distance} km
-                                                    </span>
+                                                <div className="text-sm space-y-1">
+                                                    <div>📏 Distance: <strong>{allRoutes.results.nearest_neighbor.total_distance_km} km</strong></div>
+                                                    <div>⏱️ Time: <strong>{(allRoutes.results.nearest_neighbor.total_time_hours * 60).toFixed(0)} min</strong></div>
+                                                    <div>🎯 Urgent Success: <strong>{allRoutes.results.nearest_neighbor.urgent_on_time}%</strong></div>
                                                 </div>
-                                            </div>
-                                            <div className="bg-white p-3 rounded-lg shadow">
-                                                <div className="flex justify-between items-center">
-                                                    <span className="text-sm font-semibold text-gray-700">⏱️ Estimated Time:</span>
-                                                    <span className="text-xl font-bold text-blue-600">
-                                                        {optimizedRoute.metrics.estimated_time} min
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <div className="bg-white p-3 rounded-lg shadow">
-                                                <div className="flex justify-between items-center">
-                                                    <span className="text-sm font-semibold text-gray-700">🎯 Urgent On Time:</span>
-                                                    <span className="text-xl font-bold text-purple-600">
-                                                        {optimizedRoute.metrics.urgent_before_noon_percentage}%
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        
-                                        <div className="mt-4 pt-4 border-t-2 border-green-300">
-                                            {/* Tab Selection */}
-                                            <div className="flex space-x-2 mb-3">
-                                                <button
-                                                    onClick={() => setActiveTab('conditions')}
-                                                    className={`flex-1 py-2 px-3 rounded-lg font-semibold text-sm transition-all ${
-                                                        activeTab === 'conditions'
-                                                            ? 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow'
-                                                            : 'bg-white text-gray-600 border-2 border-gray-300 hover:border-orange-400'
-                                                    }`}
-                                                >
-                                                    🌦️ Conditions
-                                                </button>
-                                                <button
-                                                    onClick={() => setActiveTab('relocation')}
-                                                    className={`flex-1 py-2 px-3 rounded-lg font-semibold text-sm transition-all ${
-                                                        activeTab === 'relocation'
-                                                            ? 'bg-gradient-to-r from-purple-500 to-pink-600 text-white shadow'
-                                                            : 'bg-white text-gray-600 border-2 border-gray-300 hover:border-purple-400'
-                                                    }`}
-                                                >
-                                                    📍 Relocation
-                                                </button>
                                             </div>
 
-                                            {/* Conditions Tab */}
-                                            {activeTab === 'conditions' && (
+                                            {/* Optimal Route */}
+                                            <div className="bg-green-100 p-3 rounded-lg border-2 border-green-300">
+                                                <div className="font-bold text-green-800 mb-2">
+                                                    🎯 Optimal ({allRoutes.results[allRoutes.best_method].method})
+                                                </div>
+                                                <div className="text-sm space-y-1">
+                                                    <div>📏 Distance: <strong>{allRoutes.results[allRoutes.best_method].total_distance_km} km</strong></div>
+                                                    <div>⏱️ Time: <strong>{(allRoutes.results[allRoutes.best_method].total_time_hours * 60).toFixed(0)} min</strong></div>
+                                                    <div>🎯 Urgent Success: <strong>{allRoutes.results[allRoutes.best_method].urgent_on_time}%</strong></div>
+                                                </div>
+                                            </div>
+
+                                            {/* Improvement */}
+                                            <div className="bg-white p-3 rounded-lg shadow border-2 border-gray-200">
+                                                <div className="font-bold text-gray-800 mb-2">💚 Improvement</div>
+                                                <div className="text-sm space-y-1">
+                                                    <div>Distance Saved: <span className="font-bold text-green-600">
+                                                        {(allRoutes.results.nearest_neighbor.total_distance_km - allRoutes.results[allRoutes.best_method].total_distance_km).toFixed(2)} km
+                                                    </span></div>
+                                                    <div>Time Saved: <span className="font-bold text-green-600">
+                                                        {((allRoutes.results.nearest_neighbor.total_time_hours - allRoutes.results[allRoutes.best_method].total_time_hours) * 60).toFixed(0)} min
+                                                    </span></div>
+                                                    <div>Improvement: <span className="font-bold text-green-600">
+                                                        {allRoutes.results[allRoutes.best_method].improvement_pct}%
+                                                    </span></div>
+                                                </div>
+                                            </div>
+
+                                            {/* Compare Conditions */}
+                                            <div className="pt-3 border-t-2 border-green-300">
+                                                <h4 className="font-bold text-gray-700 mb-3">
+                                                    🔄 Compare Different Conditions
+                                                </h4>
+                                                
                                                 <div className="space-y-3">
-                                                    <h4 className="font-bold text-gray-700">
-                                                        🔄 Compare Different Conditions
-                                                    </h4>
-                                                    
                                                     <div>
                                                         <label className="block text-sm font-semibold mb-2">
-                                                            {getTrafficIcon(newTrafficLevel)} New Traffic Level
+                                                            {getTrafficIcon(compareTraffic)} New Traffic
                                                         </label>
                                                         <select
-                                                            value={newTrafficLevel}
-                                                            onChange={(e) => setNewTrafficLevel(e.target.value)}
-                                                            className="w-full p-2 border-2 border-green-300 rounded-lg focus:border-green-500 focus:outline-none"
+                                                            value={compareTraffic}
+                                                            onChange={(e) => setCompareTraffic(e.target.value)}
+                                                            className="w-full p-2 border-2 border-green-300 rounded-lg"
                                                         >
                                                             <option value="low">🟢 Low</option>
                                                             <option value="moderate">🟡 Moderate</option>
@@ -942,12 +958,12 @@
 
                                                     <div>
                                                         <label className="block text-sm font-semibold mb-2">
-                                                            {getWeatherIcon(newWeatherCondition)} New Weather
+                                                            {getWeatherIcon(compareWeather)} New Weather
                                                         </label>
                                                         <select
-                                                            value={newWeatherCondition}
-                                                            onChange={(e) => setNewWeatherCondition(e.target.value)}
-                                                            className="w-full p-2 border-2 border-green-300 rounded-lg focus:border-green-500 focus:outline-none"
+                                                            value={compareWeather}
+                                                            onChange={(e) => setCompareWeather(e.target.value)}
+                                                            className="w-full p-2 border-2 border-green-300 rounded-lg"
                                                         >
                                                             <option value="clear">☀️ Clear</option>
                                                             <option value="light_rain">🌦️ Light Rain</option>
@@ -964,258 +980,289 @@
                                                         {loading ? '⏳ Comparing...' : '🔍 Compare Impact'}
                                                     </button>
                                                 </div>
-                                            )}
+                                            </div>
 
-                                            {/* Relocation Tab */}
-                                            {activeTab === 'relocation' && (
-                                                <div className="space-y-3">
-                                                    <h4 className="font-bold text-gray-700">
-                                                        📍 Simulate Address Relocation
-                                                    </h4>
+                                            <button
+                                                onClick={() => {
+                                                    setCurrentView('mailList');
+                                                    setAllRoutes(null);
+                                                    setComparisonRoutes(null);
+                                                }}
+                                                className="w-full bg-gray-600 text-white py-2 rounded-lg font-semibold hover:bg-gray-700 transition-all"
+                                            >
+                                                ↩️ Back to Mail List
+                                            </button>
+                                        </div>
 
-                                                    <div className="bg-purple-50 p-2 rounded border border-purple-300">
-                                                       
-                                                    </div>
-                                                    
-                                                    <div>
-                                                        <label className="block text-sm font-semibold mb-2">
-                                                            Select Customer Address
-                                                        </label>
-                                                        <select
-                                                            value={selectedDeliveryId || ''}
-                                                            onChange={(e) => setSelectedDeliveryId(Number(e.target.value))}
-                                                            className="w-full p-2 border-2 border-green-300 rounded-lg focus:border-green-500 focus:outline-none"
-                                                        >
-                                                            <option value="">Choose address...</option>
-                                                            {deliveries.map(d => (
-                                                                <option key={d.id} value={d.id}>
-                                                                    #{d.id}: {d.address.substring(0, 35)}...
-                                                                </option>
-                                                            ))}
-                                                        </select>
-                                                    </div>
+                                        {/* Customer Relocation Section */}
+                                        <div className="pt-4 mt-4 border-t-2 border-green-300">
+                                            <h4 className="font-bold text-gray-700 mb-3">
+                                                📍 Customer Relocation
+                                            </h4>
+                                            
+                                            <div className="space-y-3">
+                                                <div>
+                                                    <label className="block text-sm font-semibold mb-2">
+                                                        Select Customer
+                                                    </label>
+                                                    <select
+                                                        value={selectedDeliveryId || ''}
+                                                        onChange={(e) => {
+                                                            setSelectedDeliveryId(Number(e.target.value));
+                                                            setNewAddress('');
+                                                            setNewLatitude('');
+                                                            setNewLongitude('');
+                                                        }}
+                                                        className="w-full p-2 border-2 border-green-300 rounded-lg"
+                                                    >
+                                                        <option value="">Choose customer...</option>
+                                                        {deliveries.map(d => (
+                                                            <option key={d.id} value={d.id}>
+                                                                #{d.id}: {d.address.substring(0, 30)}...
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
 
-                                                    {selectedDeliveryId && (
+                                                {selectedDeliveryId && (
+                                                    <>
                                                         <div className="bg-blue-50 p-2 rounded border border-blue-300">
                                                             <div className="text-xs text-blue-800">
                                                                 <strong>Current Address:</strong><br/>
                                                                 {deliveries.find(d => d.id === selectedDeliveryId)?.address}
                                                             </div>
                                                         </div>
-                                                    )}
 
-                                                    <div>
-                                                        <label className="block text-sm font-semibold mb-2">
-                                                            New Address
-                                                        </label>
-                                                        <textarea
-                                                            value={newAddress}
-                                                            onChange={(e) => setNewAddress(e.target.value)}
-                                                            placeholder="Enter new address (e.g., 123 Galle Road, Colombo)"
-                                                            rows="2"
-                                                            className="w-full p-2 border-2 border-green-300 rounded-lg focus:border-green-500 focus:outline-none text-sm"
-                                                        />
-                                                    </div>
-
-                                                    <button
-                                                        onClick={handleGeocodeNewAddress}
-                                                        disabled={!newAddress || loading}
-                                                        className="w-full bg-gradient-to-r from-blue-500 to-cyan-600 text-white py-2 rounded-lg font-semibold hover:from-blue-600 hover:to-cyan-700 disabled:from-gray-400 disabled:to-gray-500 transition-all shadow text-sm"
-                                                    >
-                                                        {loading ? '⏳ Geocoding...' : '🔍 Get Coordinates'}
-                                                    </button>
-
-                                                    {(newLatitude || newLongitude) && (
-                                                        <div className="bg-green-50 p-3 rounded-lg border-2 border-green-300">
-                                                            <div className="text-sm font-semibold text-green-800 mb-2">
-                                                                ✅ Coordinates Found
-                                                            </div>
-                                                            <div className="grid grid-cols-2 gap-2">
-                                                                <div>
-                                                                    <label className="block text-xs font-semibold mb-1 text-gray-600">
-                                                                        Latitude
-                                                                    </label>
-                                                                    <input
-                                                                        type="number"
-                                                                        step="0.0001"
-                                                                        value={newLatitude}
-                                                                        onChange={(e) => setNewLatitude(e.target.value)}
-                                                                        className="w-full p-2 border border-green-300 rounded text-sm focus:border-green-500 focus:outline-none"
-                                                                    />
-                                                                </div>
-                                                                <div>
-                                                                    <label className="block text-xs font-semibold mb-1 text-gray-600">
-                                                                        Longitude
-                                                                    </label>
-                                                                    <input
-                                                                        type="number"
-                                                                        step="0.0001"
-                                                                        value={newLongitude}
-                                                                        onChange={(e) => setNewLongitude(e.target.value)}
-                                                                        className="w-full p-2 border border-green-300 rounded text-sm focus:border-green-500 focus:outline-none"
-                                                                    />
-                                                                </div>
-                                                            </div>
-                                                            <p className="text-xs text-gray-500 mt-2">
-                                                                💡 You can manually adjust coordinates if needed
-                                                            </p>
+                                                        <div>
+                                                            <label className="block text-sm font-semibold mb-2">
+                                                                New Address
+                                                            </label>
+                                                            <textarea
+                                                                value={newAddress}
+                                                                onChange={(e) => setNewAddress(e.target.value)}
+                                                                placeholder="Enter new address..."
+                                                                rows="2"
+                                                                className="w-full p-2 border-2 border-green-300 rounded-lg text-sm"
+                                                            />
                                                         </div>
-                                                    )}
 
-                                                    <button
-                                                        onClick={compareRelocation}
-                                                        disabled={!selectedDeliveryId || !newLatitude || !newLongitude || loading}
-                                                        className="w-full bg-gradient-to-r from-purple-500 to-pink-600 text-white py-3 rounded-lg font-bold hover:from-purple-600 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-500 transition-all shadow"
-                                                    >
-                                                        {loading ? '⏳ Analyzing...' : '🔍 Analyze Relocation Impact'}
-                                                    </button>
-                                                </div>
-                                            )}
+                                                        <button
+                                                            onClick={handleGeocodeNewAddress}
+                                                            disabled={!newAddress || loading}
+                                                            className="w-full bg-gradient-to-r from-blue-500 to-cyan-600 text-white py-2 rounded-lg font-semibold hover:from-blue-600 hover:to-cyan-700 disabled:from-gray-400 disabled:to-gray-500 transition-all text-sm"
+                                                        >
+                                                            {loading ? '⏳ Geocoding...' : '🔍 Get Coordinates'}
+                                                        </button>
+
+                                                        {(newLatitude || newLongitude) && (
+                                                            <div className="bg-green-50 p-3 rounded-lg border-2 border-green-300">
+                                                                <div className="text-sm font-semibold text-green-800 mb-2">
+                                                                    ✅ Coordinates Found
+                                                                </div>
+                                                                <div className="grid grid-cols-2 gap-2">
+                                                                    <div>
+                                                                        <label className="block text-xs font-semibold mb-1">
+                                                                            Latitude
+                                                                        </label>
+                                                                        <input
+                                                                            type="number"
+                                                                            step="0.0001"
+                                                                            value={newLatitude}
+                                                                            onChange={(e) => setNewLatitude(e.target.value)}
+                                                                            className="w-full p-2 border border-green-300 rounded text-sm"
+                                                                        />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="block text-xs font-semibold mb-1">
+                                                                            Longitude
+                                                                        </label>
+                                                                        <input
+                                                                            type="number"
+                                                                            step="0.0001"
+                                                                            value={newLongitude}
+                                                                            onChange={(e) => setNewLongitude(e.target.value)}
+                                                                            className="w-full p-2 border border-green-300 rounded text-sm"
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        <button
+                                                            onClick={compareRelocation}
+                                                            disabled={!newLatitude || !newLongitude || loading}
+                                                            className="w-full bg-gradient-to-r from-purple-500 to-pink-600 text-white py-3 rounded-lg font-bold hover:from-purple-600 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-500 transition-all shadow"
+                                                        >
+                                                            {loading ? '⏳ Analyzing...' : '📍 Analyze Relocation Impact'}
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 )}
 
-                                {comparisonRoutes && comparisonMode && (
-                                    <div className="bg-gradient-to-br from-purple-50 to-indigo-50 p-4 rounded-lg shadow-lg border-2 border-purple-300">
+                                {/* Relocation Comparison Results */}
+                                {relocationRoutes && currentView === 'relocation' && relocationData && (
+                                    <div className="bg-gradient-to-br from-purple-50 to-pink-50 p-4 rounded-lg shadow-lg border-2 border-purple-300">
                                         <h3 className="font-bold mb-3 text-gray-800 flex items-center text-lg">
-                                            <span className="mr-2">📊</span> 
-                                            {comparisonType === 'conditions' ? 'Conditions Impact Analysis' : 'Relocation Impact Analysis'}
+                                            <span className="mr-2">📍</span> 
+                                            Relocation Impact Analysis
                                         </h3>
 
-                                        <div className="space-y-4">
-                                            {comparisonType === 'conditions' && (
-                                                <>
-                                                    <div className="bg-blue-100 p-3 rounded-lg border-2 border-blue-300">
-                                                        <div className="font-bold text-blue-800 mb-2 flex items-center">
-                                                            <div className="w-4 h-4 bg-blue-600 mr-2" style={{border: '2px dashed white'}}></div>
-                                                            Original Conditions
-                                                        </div>
-                                                        <div className="text-sm space-y-1">
-                                                            <div>{getTrafficIcon(comparisonRoutes.original.traffic)} Traffic: <strong>{comparisonRoutes.original.traffic}</strong></div>
-                                                            <div>{getWeatherIcon(comparisonRoutes.original.weather)} Weather: <strong>{comparisonRoutes.original.weather}</strong></div>
-                                                            <div className="pt-2 border-t border-blue-300 mt-2">
-                                                                <div>📏 Distance: <strong>{comparisonRoutes.original.metrics.total_distance} km</strong></div>
-                                                                <div>⏱️ Time: <strong>{comparisonRoutes.original.metrics.estimated_time} min</strong></div>
-                                                                <div>🎯 Urgent Success: <strong>{comparisonRoutes.original.metrics.urgent_before_noon_percentage}%</strong></div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="bg-red-100 p-3 rounded-lg border-2 border-red-300">
-                                                        <div className="font-bold text-red-800 mb-2 flex items-center">
-                                                            <div className="w-4 h-4 bg-red-600 mr-2"></div>
-                                                            New Conditions
-                                                        </div>
-                                                        <div className="text-sm space-y-1">
-                                                            <div>{getTrafficIcon(comparisonRoutes.new.traffic)} Traffic: <strong>{comparisonRoutes.new.traffic}</strong></div>
-                                                            <div>{getWeatherIcon(comparisonRoutes.new.weather)} Weather: <strong>{comparisonRoutes.new.weather}</strong></div>
-                                                            <div className="pt-2 border-t border-red-300 mt-2">
-                                                                <div>📏 Distance: <strong>{comparisonRoutes.new.metrics.total_distance} km</strong></div>
-                                                                <div>⏱️ Time: <strong>{comparisonRoutes.new.metrics.estimated_time} min</strong></div>
-                                                                <div>🎯 Urgent Success: <strong>{comparisonRoutes.new.metrics.urgent_before_noon_percentage}%</strong></div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </>
-                                            )}
-
-                                            {comparisonType === 'relocation' && relocationData && (
-                                                <>
-                                                    <div className="bg-orange-100 p-3 rounded-lg border-2 border-orange-300">
-                                                        <div className="font-bold text-orange-800 mb-2">
-                                                            📍 Relocation Details
-                                                        </div>
-                                                        <div className="text-sm space-y-1">
-                                                            <div><strong>Old Address:</strong><br/>{relocationData.address.substring(0, 50)}...</div>
-                                                            <div><strong>New Address:</strong><br/>{relocationData.new_address || 'Custom Coordinates'}</div>
-                                                            <div className="pt-2 border-t border-orange-300 mt-2">
-                                                                <strong>Distance Moved:</strong> <span className="text-lg font-bold text-orange-700">{relocationData.distance_change_km} km</span>
-                                                            </div>
-                                                            <div className="text-xs text-gray-600 mt-2">
-                                                                Old: {relocationData.old_latitude.toFixed(4)}, {relocationData.old_longitude.toFixed(4)}<br/>
-                                                                New: {relocationData.new_latitude.toFixed(4)}, {relocationData.new_longitude.toFixed(4)}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="bg-blue-100 p-3 rounded-lg border-2 border-blue-300">
-                                                        <div className="font-bold text-blue-800 mb-2 flex items-center">
-                                                            <div className="w-4 h-4 bg-blue-600 mr-2" style={{border: '2px dashed white'}}></div>
-                                                            Before Relocation
-                                                        </div>
-                                                        <div className="text-sm space-y-1">
-                                                            <div>📏 Distance: <strong>{comparisonRoutes.original.metrics.total_distance} km</strong></div>
-                                                            <div>⏱️ Time: <strong>{comparisonRoutes.original.metrics.estimated_time} min</strong></div>
-                                                            <div>🎯 Urgent Success: <strong>{comparisonRoutes.original.metrics.urgent_before_noon_percentage}%</strong></div>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="bg-red-100 p-3 rounded-lg border-2 border-red-300">
-                                                        <div className="font-bold text-red-800 mb-2 flex items-center">
-                                                            <div className="w-4 h-4 bg-red-600 mr-2"></div>
-                                                            After Relocation
-                                                        </div>
-                                                        <div className="text-sm space-y-1">
-                                                            <div>📏 Distance: <strong>{comparisonRoutes.new.metrics.total_distance} km</strong></div>
-                                                            <div>⏱️ Time: <strong>{comparisonRoutes.new.metrics.estimated_time} min</strong></div>
-                                                            <div>🎯 Urgent Success: <strong>{comparisonRoutes.new.metrics.urgent_before_noon_percentage}%</strong></div>
-                                                        </div>
-                                                    </div>
-                                                </>
-                                            )}
-
-                                            <div className="bg-white p-3 rounded-lg shadow-lg border-2 border-gray-300">
-                                                <div className="font-bold text-gray-800 mb-2">📈 Impact Analysis</div>
-                                                <div className="text-sm space-y-2">
-                                                    <div className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                                                        <span>Distance Change:</span>
-                                                        <span className={`font-bold ${
-                                                            (parseFloat(comparisonRoutes.new.metrics.total_distance) - 
-                                                             parseFloat(comparisonRoutes.original.metrics.total_distance)) > 0 
-                                                                ? 'text-red-600' : 'text-green-600'
-                                                        }`}>
-                                                            {(parseFloat(comparisonRoutes.new.metrics.total_distance) - 
-                                                              parseFloat(comparisonRoutes.original.metrics.total_distance)) > 0 ? '+' : ''}
-                                                            {(parseFloat(comparisonRoutes.new.metrics.total_distance) - 
-                                                              parseFloat(comparisonRoutes.original.metrics.total_distance)).toFixed(2)} km
-                                                        </span>
-                                                    </div>
-                                                    
-                                                    <div className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                                                        <span>Time Change:</span>
-                                                        <span className={`font-bold ${
-                                                            (parseFloat(comparisonRoutes.new.metrics.estimated_time) - 
-                                                             parseFloat(comparisonRoutes.original.metrics.estimated_time)) > 0 
-                                                                ? 'text-red-600' : 'text-green-600'
-                                                        }`}>
-                                                            {(parseFloat(comparisonRoutes.new.metrics.estimated_time) - 
-                                                              parseFloat(comparisonRoutes.original.metrics.estimated_time)) > 0 ? '+' : ''}
-                                                            {(parseFloat(comparisonRoutes.new.metrics.estimated_time) - 
-                                                              parseFloat(comparisonRoutes.original.metrics.estimated_time)).toFixed(0)} min
-                                                        </span>
-                                                    </div>
-                                                    
-                                                    <div className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                                                        <span>Urgent Impact:</span>
-                                                        <span className={`font-bold ${
-                                                            (parseFloat(comparisonRoutes.new.metrics.urgent_before_noon_percentage) - 
-                                                             parseFloat(comparisonRoutes.original.metrics.urgent_before_noon_percentage)) < 0 
-                                                                ? 'text-red-600' : 'text-green-600'
-                                                        }`}>
-                                                            {(parseFloat(comparisonRoutes.new.metrics.urgent_before_noon_percentage) - 
-                                                              parseFloat(comparisonRoutes.original.metrics.urgent_before_noon_percentage)) > 0 ? '+' : ''}
-                                                            {(parseFloat(comparisonRoutes.new.metrics.urgent_before_noon_percentage) - 
-                                                              parseFloat(comparisonRoutes.original.metrics.urgent_before_noon_percentage)).toFixed(0)}%
-                                                        </span>
+                                        <div className="space-y-3">
+                                            {/* Relocation Details */}
+                                            <div className="bg-orange-100 p-3 rounded-lg border-2 border-orange-300">
+                                                <div className="font-bold text-orange-800 mb-2">
+                                                    📦 Relocation Details
+                                                </div>
+                                                <div className="text-sm space-y-1">
+                                                    <div><strong>Customer ID:</strong> #{relocationData.location_id}</div>
+                                                    <div><strong>Old Address:</strong><br/>{relocationData.address}</div>
+                                                    <div><strong>New Address:</strong><br/>{relocationData.new_address || 'Custom Coordinates'}</div>
+                                                    <div className="pt-2 border-t border-orange-300">
+                                                        <strong>Distance Moved:</strong> <span className="text-lg font-bold text-orange-700">{relocationData.distance_change_km} km</span>
                                                     </div>
                                                 </div>
                                             </div>
 
+                                            {/* Before Relocation */}
+                                            <div className="bg-blue-100 p-3 rounded-lg border-2 border-blue-300">
+                                                <div className="font-bold text-blue-800 mb-2">
+                                                    📍 Before Relocation
+                                                </div>
+                                                <div className="text-sm space-y-1">
+                                                    <div>📏 Distance: <strong>{relocationRoutes.original.results[relocationRoutes.original.best_method].total_distance_km} km</strong></div>
+                                                    <div>⏱️ Time: <strong>{(relocationRoutes.original.results[relocationRoutes.original.best_method].total_time_hours * 60).toFixed(0)} min</strong></div>
+                                                    <div>🎯 Urgent Success: <strong>{relocationRoutes.original.results[relocationRoutes.original.best_method].urgent_on_time}%</strong></div>
+                                                </div>
+                                            </div>
+
+                                            {/* After Relocation */}
+                                            <div className="bg-green-100 p-3 rounded-lg border-2 border-green-300">
+                                                <div className="font-bold text-green-800 mb-2">
+                                                    📍 After Relocation
+                                                </div>
+                                                <div className="text-sm space-y-1">
+                                                    <div>📏 Distance: <strong>{relocationRoutes.new.results[relocationRoutes.new.best_method].total_distance_km} km</strong></div>
+                                                    <div>⏱️ Time: <strong>{(relocationRoutes.new.results[relocationRoutes.new.best_method].total_time_hours * 60).toFixed(0)} min</strong></div>
+                                                    <div>🎯 Urgent Success: <strong>{relocationRoutes.new.results[relocationRoutes.new.best_method].urgent_on_time}%</strong></div>
+                                                </div>
+                                            </div>
+
+                                            {/* Impact Analysis */}
+                                            <div className="bg-white p-3 rounded-lg shadow border-2 border-gray-200">
+                                                <div className="font-bold text-gray-800 mb-2">📊 Route Impact</div>
+                                                <div className="text-sm space-y-1">
+                                                    <div>Distance Change: <span className={`font-bold ${
+                                                        (relocationRoutes.new.results[relocationRoutes.new.best_method].total_distance_km - 
+                                                         relocationRoutes.original.results[relocationRoutes.original.best_method].total_distance_km) > 0 
+                                                            ? 'text-red-600' : 'text-green-600'
+                                                    }`}>
+                                                        {(relocationRoutes.new.results[relocationRoutes.new.best_method].total_distance_km - 
+                                                          relocationRoutes.original.results[relocationRoutes.original.best_method].total_distance_km) > 0 ? '+' : ''}
+                                                        {(relocationRoutes.new.results[relocationRoutes.new.best_method].total_distance_km - 
+                                                          relocationRoutes.original.results[relocationRoutes.original.best_method].total_distance_km).toFixed(2)} km
+                                                    </span></div>
+                                                    <div>Time Change: <span className={`font-bold ${
+                                                        ((relocationRoutes.new.results[relocationRoutes.new.best_method].total_time_hours - 
+                                                          relocationRoutes.original.results[relocationRoutes.original.best_method].total_time_hours) * 60) > 0 
+                                                            ? 'text-red-600' : 'text-green-600'
+                                                    }`}>
+                                                        {((relocationRoutes.new.results[relocationRoutes.new.best_method].total_time_hours - 
+                                                           relocationRoutes.original.results[relocationRoutes.original.best_method].total_time_hours) * 60) > 0 ? '+' : ''}
+                                                        {((relocationRoutes.new.results[relocationRoutes.new.best_method].total_time_hours - 
+                                                           relocationRoutes.original.results[relocationRoutes.original.best_method].total_time_hours) * 60).toFixed(0)} min
+                                                    </span></div>
+                                                </div>
+                                            </div>
+
                                             <button
-                                                onClick={resetComparison}
-                                                className="w-full bg-gray-600 text-white py-3 rounded-lg font-bold hover:bg-gray-700 transition-all shadow"
+                                                onClick={() => {
+                                                    setCurrentView('routes');
+                                                    setRelocationRoutes(null);
+                                                    setRelocationData(null);
+                                                    setSelectedDeliveryId(null);
+                                                    setNewAddress('');
+                                                    setNewLatitude('');
+                                                    setNewLongitude('');
+                                                }}
+                                                className="w-full bg-gray-600 text-white py-2 rounded-lg font-semibold hover:bg-gray-700 transition-all"
                                             >
-                                                ↩️ Reset Comparison
+                                                ↩️ Back to Routes
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Conditions Comparison Results */}
+                                {comparisonRoutes && currentView === 'comparison' && (
+                                    <div className="bg-gradient-to-br from-orange-50 to-red-50 p-4 rounded-lg shadow-lg border-2 border-orange-300">
+                                        <h3 className="font-bold mb-3 text-gray-800 flex items-center text-lg">
+                                            <span className="mr-2">🔍</span> 
+                                            Conditions Impact Analysis
+                                        </h3>
+
+                                        <div className="space-y-3">
+                                            {/* Original Conditions */}
+                                            <div className="bg-blue-100 p-3 rounded-lg border-2 border-blue-300">
+                                                <div className="font-bold text-blue-800 mb-2">
+                                                    📍 Original Conditions
+                                                </div>
+                                                <div className="text-sm space-y-1">
+                                                    <div>{getTrafficIcon(trafficLevel)} Traffic: <strong>{trafficLevel}</strong></div>
+                                                    <div>{getWeatherIcon(weatherCondition)} Weather: <strong>{weatherCondition}</strong></div>
+                                                    <div className="pt-2 border-t border-blue-300">
+                                                        <div>📏 Distance: <strong>{allRoutes.results[allRoutes.best_method].total_distance_km} km</strong></div>
+                                                        <div>⏱️ Time: <strong>{(allRoutes.results[allRoutes.best_method].total_time_hours * 60).toFixed(0)} min</strong></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* New Conditions */}
+                                            <div className="bg-red-100 p-3 rounded-lg border-2 border-red-300">
+                                                <div className="font-bold text-red-800 mb-2">
+                                                    🔄 New Conditions
+                                                </div>
+                                                <div className="text-sm space-y-1">
+                                                    <div>{getTrafficIcon(compareTraffic)} Traffic: <strong>{compareTraffic}</strong></div>
+                                                    <div>{getWeatherIcon(compareWeather)} Weather: <strong>{compareWeather}</strong></div>
+                                                    <div className="pt-2 border-t border-red-300">
+                                                        <div>📏 Distance: <strong>{comparisonRoutes.results[comparisonRoutes.best_method].total_distance_km} km</strong></div>
+                                                        <div>⏱️ Time: <strong>{(comparisonRoutes.results[comparisonRoutes.best_method].total_time_hours * 60).toFixed(0)} min</strong></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Impact */}
+                                            <div className="bg-white p-3 rounded-lg shadow border-2 border-gray-200">
+                                                <div className="font-bold text-gray-800 mb-2">📊 Impact</div>
+                                                <div className="text-sm space-y-1">
+                                                    <div>Distance Change: <span className={`font-bold ${
+                                                        (comparisonRoutes.results[comparisonRoutes.best_method].total_distance_km - allRoutes.results[allRoutes.best_method].total_distance_km) > 0 
+                                                            ? 'text-red-600' : 'text-green-600'
+                                                    }`}>
+                                                        {(comparisonRoutes.results[comparisonRoutes.best_method].total_distance_km - allRoutes.results[allRoutes.best_method].total_distance_km) > 0 ? '+' : ''}
+                                                        {(comparisonRoutes.results[comparisonRoutes.best_method].total_distance_km - allRoutes.results[allRoutes.best_method].total_distance_km).toFixed(2)} km
+                                                    </span></div>
+                                                    <div>Time Change: <span className={`font-bold ${
+                                                        ((comparisonRoutes.results[comparisonRoutes.best_method].total_time_hours - allRoutes.results[allRoutes.best_method].total_time_hours) * 60) > 0 
+                                                            ? 'text-red-600' : 'text-green-600'
+                                                    }`}>
+                                                        {((comparisonRoutes.results[comparisonRoutes.best_method].total_time_hours - allRoutes.results[allRoutes.best_method].total_time_hours) * 60) > 0 ? '+' : ''}
+                                                        {((comparisonRoutes.results[comparisonRoutes.best_method].total_time_hours - allRoutes.results[allRoutes.best_method].total_time_hours) * 60).toFixed(0)} min
+                                                    </span></div>
+                                                </div>
+                                            </div>
+
+                                            <button
+                                                onClick={() => {
+                                                    setCurrentView('routes');
+                                                    setComparisonRoutes(null);
+                                                }}
+                                                className="w-full bg-gray-600 text-white py-2 rounded-lg font-semibold hover:bg-gray-700 transition-all"
+                                            >
+                                                ↩️ Back to Routes
                                             </button>
                                         </div>
                                     </div>
@@ -1223,29 +1270,9 @@
                             </div>
                         </div>
 
-                        <div className="flex-1 relative">
-                            {selectedZone ? (
-                                <MapView 
-                                    deliveries={deliveries}
-                                    route={comparisonMode && comparisonRoutes ? comparisonRoutes.new.deliveries : (optimizedRoute ? optimizedRoute.deliveries : null)}
-                                    center={center}
-                                    showRoute={!!optimizedRoute && !comparisonMode}
-                                    comparisonMode={comparisonMode}
-                                    originalRoute={comparisonMode && comparisonRoutes ? comparisonRoutes.original.deliveries : null}
-                                    originalRouteLabel={comparisonMode && comparisonRoutes ? 
-                                        (comparisonType === 'conditions' 
-                                            ? `${getTrafficIcon(comparisonRoutes.original.traffic)} ${comparisonRoutes.original.traffic} / ${getWeatherIcon(comparisonRoutes.original.weather)} ${comparisonRoutes.original.weather}`
-                                            : 'Before Relocation'
-                                        ) : ''}
-                                    newRouteLabel={comparisonMode && comparisonRoutes ? 
-                                        (comparisonType === 'conditions' 
-                                            ? `${getTrafficIcon(comparisonRoutes.new.traffic)} ${comparisonRoutes.new.traffic} / ${getWeatherIcon(comparisonRoutes.new.weather)} ${comparisonRoutes.new.weather}`
-                                            : 'After Relocation'
-                                        ) : ''}
-                                    relocatedPoint={comparisonType === 'relocation' ? relocationData : null}
-                                    comparisonType={comparisonType}
-                                />
-                            ) : (
+                        {/* Main Content Area */}
+                        <div className="flex-1 overflow-hidden">
+                            {!selectedZone && (
                                 <div className="flex items-center justify-center h-full bg-gradient-to-br from-gray-100 to-gray-200">
                                     <div className="text-center p-8 bg-white rounded-lg shadow-xl">
                                         <div className="text-6xl mb-4">🗺️</div>
@@ -1253,6 +1280,156 @@
                                         <p className="text-gray-400 text-sm">Choose from the dropdown menu on the left</p>
                                     </div>
                                 </div>
+                            )}
+
+                            {selectedZone && currentView === 'upload' && (
+                                <div className="flex items-center justify-center h-full bg-gradient-to-br from-blue-50 to-indigo-50">
+                                    <div className="text-center p-8 bg-white rounded-lg shadow-xl max-w-md">
+                                        <div className="text-6xl mb-4">📤</div>
+                                        <p className="text-gray-700 text-xl font-semibold mb-2">Upload Your Mail Data</p>
+                                        <p className="text-gray-500 text-sm mb-4">Upload a CSV file with mail delivery information to get started</p>
+                                        <div className="text-xs text-gray-400 text-left bg-gray-50 p-3 rounded">
+                                            <p className="font-semibold mb-1">Required CSV columns:</p>
+                                            <ul className="list-disc list-inside space-y-1">
+                                                <li>address</li>
+                                                <li>mail_type</li>
+                                                <li>latitude (optional)</li>
+                                                <li>longitude (optional)</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {selectedZone && currentView === 'mailList' && (
+                                <div className="h-full overflow-y-auto bg-gray-50 p-6">
+                                    <div className="max-w-6xl mx-auto">
+                                        <h2 className="text-2xl font-bold mb-4 text-gray-800">📋 Mail Classification List</h2>
+                                        
+                                        <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                                            <table className="w-full">
+                                                <thead className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
+                                                    <tr>
+                                                        <th className="px-4 py-3 text-left">#</th>
+                                                        <th className="px-4 py-3 text-left">Address</th>
+                                                        <th className="px-4 py-3 text-left">Mail Type</th>
+                                                        <th className="px-4 py-3 text-center">Priority</th>
+                                                        <th className="px-4 py-3 text-left">Sender</th>
+                                                        <th className="px-4 py-3 text-left">Recipient</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {deliveries.map((delivery, idx) => (
+                                                        <tr key={delivery.id} className={`border-b hover:bg-gray-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                                            <td className="px-4 py-3 font-semibold text-gray-600">
+                                                                {idx + 1}
+                                                            </td>
+                                                            <td className="px-4 py-3">
+                                                                <div className="text-sm font-medium text-gray-800">
+                                                                    {delivery.address}
+                                                                </div>
+                                                                <div className="text-xs text-gray-500">
+                                                                    {delivery.latitude.toFixed(4)}, {delivery.longitude.toFixed(4)}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-4 py-3">
+                                                                <span className="text-sm font-medium text-gray-700">
+                                                                    {delivery.mail_type}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-4 py-3 text-center">
+                                                                <span className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${
+                                                                    delivery.priority === 'urgent' 
+                                                                        ? 'bg-red-100 text-red-700 border border-red-300' 
+                                                                        : 'bg-blue-100 text-blue-700 border border-blue-300'
+                                                                }`}>
+                                                                    {delivery.priority === 'urgent' ? '🔴 URGENT' : '🔵 REGULAR'}
+                                                                </span>
+                                                            </td>
+                                                            <td className="px-4 py-3 text-sm text-gray-600">
+                                                                {delivery.sender_type}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-sm text-gray-600">
+                                                                {delivery.recipient_type}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+
+                                        <div className="mt-6 bg-white p-4 rounded-lg shadow flex justify-between items-center">
+                                            <div className="text-sm text-gray-600">
+                                                Showing <strong>{deliveries.length}</strong> deliveries
+                                                ({urgentCount} urgent, {regularCount} regular)
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {selectedZone && currentView === 'routes' && allRoutes && (
+                                <MapView 
+                                    deliveries={deliveries}
+                                    route={null}
+                                    center={center}
+                                    showRoute={false}
+                                    comparisonMode={true}
+                                    baselineRoute={allRoutes.results.nearest_neighbor.deliveries.slice(1)}
+                                    optimalRoute={allRoutes.results[allRoutes.best_method].deliveries.slice(1)}
+                                    showLabels={false}
+                                />
+                            )}
+
+                            {selectedZone && currentView === 'comparison' && comparisonRoutes && (
+                                <div className="h-full flex">
+                                    <div className="flex-1 border-r">
+                                        <div className="bg-blue-600 text-white p-2 text-center font-bold">
+                                            Original: {getTrafficIcon(trafficLevel)} {trafficLevel} / {getWeatherIcon(weatherCondition)} {weatherCondition}
+                                        </div>
+                                        <div className="h-[calc(100%-40px)]">
+                                            <MapView 
+                                                deliveries={deliveries}
+                                                route={allRoutes.results[allRoutes.best_method].deliveries.slice(1)}
+                                                center={center}
+                                                showRoute={true}
+                                                comparisonMode={false}
+                                                showLabels={false}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="bg-red-600 text-white p-2 text-center font-bold">
+                                            New: {getTrafficIcon(compareTraffic)} {compareTraffic} / {getWeatherIcon(compareWeather)} {compareWeather}
+                                        </div>
+                                        <div className="h-[calc(100%-40px)]">
+                                            <MapView 
+                                                deliveries={deliveries}
+                                                route={comparisonRoutes.results[comparisonRoutes.best_method].deliveries.slice(1)}
+                                                center={center}
+                                                showRoute={true}
+                                                comparisonMode={false}
+                                                showLabels={false}
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {selectedZone && currentView === 'relocation' && relocationRoutes && relocationData && (
+                                <MapView 
+                                    deliveries={deliveries}
+                                    route={null}
+                                    center={center}
+                                    showRoute={false}
+                                    comparisonMode={false}
+                                    relocationMode={true}
+                                    relocationData={relocationData}
+                                    baselineRoute={relocationRoutes.original.results[relocationRoutes.original.best_method].deliveries.slice(1)}
+                                    optimalRoute={relocationRoutes.new.results[relocationRoutes.new.best_method].deliveries.slice(1)}
+                                    afterDeliveries={relocationRoutes.updatedDeliveries}
+                                    showLabels={false}
+                                />
                             )}
                         </div>
                     </div>
