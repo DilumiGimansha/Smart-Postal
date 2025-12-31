@@ -1,0 +1,75 @@
+{
+  "rerouting_history": [
+    {
+      "timestamp": "2025-12-31T11:46:48.906687",
+      "relocations_processed": 1,
+      "relocation_ids": [
+        "REL00001"
+      ],
+      "original_route": {
+        "sequence": [
+          0,
+          6,
+          2,
+          3,
+          8,
+          7,
+          4,
+          5,
+          1,
+          10,
+          12,
+          9,
+          11,
+          0
+        ],
+        "distance_km": 167.15,
+        "time_hours": 7.95,
+        "urgent_success": 7
+      },
+      "new_route": {
+        "sequence": [
+          0,
+          3,
+          4,
+          6,
+          2,
+          10,
+          7,
+          8,
+          1,
+          11,
+          12,
+          5,
+          9,
+          0
+        ],
+        "distance_km": 198.96,
+        "time_hours": 9.28,
+        "urgent_success": 5
+      },
+      "improvement": {
+        "distance_saved_km": -31.81,
+        "time_saved_hours": -1.33,
+        "urgent_improvement": -2,
+        "distance_change_pct": 19.03
+      },
+      "optimization_method": "q_learning",
+      "status": "completed"
+    }
+  ],
+  "relocation_history": [
+    {
+      "relocation_id": "REL00001",
+      "location_id": 3,
+      "old_latitude": 6.805208571958478,
+      "old_longitude": 79.78099826801721,
+      "new_latitude": 6.965,
+      "new_longitude": 79.83,
+      "distance_change_km": 18.57,
+      "reason": "customer_requested_change",
+      "timestamp": "2025-12-31T11:46:48.615704",
+      "status": "processed"
+    }
+  ]
+}
