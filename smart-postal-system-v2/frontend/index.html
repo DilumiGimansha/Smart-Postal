@@ -1314,8 +1314,7 @@
                                                         <th className="px-4 py-3 text-left">Address</th>
                                                         <th className="px-4 py-3 text-left">Mail Type</th>
                                                         <th className="px-4 py-3 text-center">Priority</th>
-                                                        <th className="px-4 py-3 text-left">Sender</th>
-                                                        <th className="px-4 py-3 text-left">Recipient</th>
+                                                       
                                                     </tr>
                                                 </thead>
                                                 <tbody>
@@ -1346,12 +1345,7 @@
                                                                     {delivery.priority === 'urgent' ? '🔴 URGENT' : '🔵 REGULAR'}
                                                                 </span>
                                                             </td>
-                                                            <td className="px-4 py-3 text-sm text-gray-600">
-                                                                {delivery.sender_type}
-                                                            </td>
-                                                            <td className="px-4 py-3 text-sm text-gray-600">
-                                                                {delivery.recipient_type}
-                                                            </td>
+                                                           
                                                         </tr>
                                                     ))}
                                                 </tbody>
