@@ -118,9 +118,9 @@
       "time_window": 2.6584578100890663
     }
   ],
-  "traffic_factor": 1.07,
-  "traffic_level": "light",
+  "traffic_factor": 1.47,
+  "traffic_level": "heavy",
   "weather_factor": 0.95,
   "weather_condition": "clear",
-  "timestamp": "2025-12-31T23:24:48.408839"
+  "timestamp": "2026-01-02T09:57:23.822656"
 }
