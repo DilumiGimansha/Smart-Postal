@@ -25,7 +25,10 @@
         const { useState, useEffect, useRef } = React;
 
         const API_BASE = 'http://localhost:8000/api';
-        const GOOGLE_MAPS_API_KEY = 'AIzaSyB_996Uyid5qMajR-4PJY0EcpO6Prp_n4c'; // Replace with your API key
+        const GOOGLE_MAPS_API_KEY = 'AIzaSyB_996Uyid5qMajR-4PJY0EcpO6Prp_n4c';
+
+        // Default center - Colombo, Sri Lanka
+        const DEFAULT_CENTER = { lat: 6.9271, lng: 79.8612 };
 
         // Load Google Maps API
         const loadGoogleMapsScript = () => {
@@ -64,16 +67,16 @@
                 }
                 
                 return {
-                    latitude: 6.9271 + (Math.random() - 0.5) * 0.1,
-                    longitude: 79.8612 + (Math.random() - 0.5) * 0.1,
+                    latitude: DEFAULT_CENTER.lat + (Math.random() - 0.5) * 0.1,
+                    longitude: DEFAULT_CENTER.lng + (Math.random() - 0.5) * 0.1,
                     success: false,
                     fallback: true
                 };
             } catch (error) {
                 console.error('Geocoding error:', error);
                 return {
-                    latitude: 6.9271 + (Math.random() - 0.5) * 0.1,
-                    longitude: 79.8612 + (Math.random() - 0.5) * 0.1,
+                    latitude: DEFAULT_CENTER.lat + (Math.random() - 0.5) * 0.1,
+                    longitude: DEFAULT_CENTER.lng + (Math.random() - 0.5) * 0.1,
                     success: false,
                     fallback: true
                 };
@@ -410,8 +413,6 @@
         };
 
         const App = () => {
-            const [zones, setZones] = useState([]);
-            const [selectedZone, setSelectedZone] = useState(null);
             const [deliveries, setDeliveries] = useState([]);
             const [allRoutes, setAllRoutes] = useState(null);
             const [loading, setLoading] = useState(false);
@@ -426,9 +427,6 @@
             const [currentConditions, setCurrentConditions] = useState(null);
             const [conditionsLoading, setConditionsLoading] = useState(false);
             
-            // Comparison state
-            const [comparisonRoutes, setComparisonRoutes] = useState(null);
-
             // Relocation state
             const [selectedDeliveryId, setSelectedDeliveryId] = useState(null);
             const [newAddress, setNewAddress] = useState('');
@@ -437,65 +435,48 @@
             const [relocationData, setRelocationData] = useState(null);
             const [relocationRoutes, setRelocationRoutes] = useState(null);
 
+            // Calculate center from deliveries
+            const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER);
+
             useEffect(() => {
-                fetchZones();
                 loadGoogleMapsScript();
             }, []);
 
-            const fetchZones = async () => {
-                try {
-                    const response = await fetch(`${API_BASE}/postal-zones`);
-                    const data = await response.json();
-                    setZones(data.zones);
-                } catch (error) {
-                    console.error('Error fetching zones:', error);
-                    setError('Failed to load postal zones');
+            useEffect(() => {
+                if (deliveries.length > 0) {
+                    const avgLat = deliveries.reduce((sum, d) => sum + d.latitude, 0) / deliveries.length;
+                    const avgLng = deliveries.reduce((sum, d) => sum + d.longitude, 0) / deliveries.length;
+                    setMapCenter({ lat: avgLat, lng: avgLng });
                 }
-            };
+            }, [deliveries]);
 
-            const fetchZoneConditions = async (zoneId) => {
+            const fetchRealTimeConditions = async () => {
+                if (deliveries.length === 0) return;
+                
                 setConditionsLoading(true);
                 try {
-                    const response = await fetch(`${API_BASE}/conditions/${zoneId}`);
-                    const data = await response.json();
-                    setCurrentConditions(data);
-                    return data;
+                    const avgLat = deliveries.reduce((sum, d) => sum + d.latitude, 0) / deliveries.length;
+                    const avgLng = deliveries.reduce((sum, d) => sum + d.longitude, 0) / deliveries.length;
+
+                    // Mock weather and traffic data
+                    setCurrentConditions({
+                        weather: {
+                            condition: 'clear',
+                            temperature: 28,
+                            humidity: 70,
+                            description: 'clear sky',
+                            rain_volume: 0
+                        },
+                        traffic: {
+                            level: 'moderate',
+                            ratio: 1.0
+                        },
+                        timestamp: new Date().toISOString()
+                    });
                 } catch (error) {
                     console.error('Error fetching conditions:', error);
-                    setError('Failed to fetch real-time conditions');
-                    return null;
                 } finally {
                     setConditionsLoading(false);
-                }
-            };
-
-            const handleZoneSelect = async (zoneId) => {
-                setSelectedZone(zoneId);
-                setAllRoutes(null);
-                setComparisonRoutes(null);
-                setRelocationRoutes(null);
-                setRelocationData(null);
-                setSelectedDeliveryId(null);
-                setNewAddress('');
-                setNewLatitude('');
-                setNewLongitude('');
-                setError(null);
-                setCurrentView('upload');
-                setCurrentConditions(null);
-                
-                if (zoneId) {
-                    // Fetch deliveries
-                    try {
-                        const response = await fetch(`${API_BASE}/deliveries/${zoneId}`);
-                        const data = await response.json();
-                        setDeliveries(data.deliveries.map((d, idx) => ({...d, id: d.delivery_id || idx + 1})));
-                    } catch (error) {
-                        console.error('Error fetching deliveries:', error);
-                        setError('Failed to load deliveries');
-                    }
-
-                    // Fetch real-time conditions
-                    await fetchZoneConditions(zoneId);
                 }
             };
 
@@ -584,6 +565,9 @@
                             setError(null);
                             setCurrentView('mailList');
                             
+                            // Fetch conditions after upload
+                            setTimeout(() => fetchRealTimeConditions(), 500);
+                            
                             alert(`Successfully processed ${processedDeliveries.length} deliveries!`);
                         } catch (error) {
                             console.error('Error processing CSV:', error);
@@ -603,7 +587,7 @@
             };
 
             const optimizeRoutes = async () => {
-                if (!selectedZone || deliveries.length === 0) return;
+                if (deliveries.length === 0) return;
 
                 setLoading(true);
                 setError(null);
@@ -613,7 +597,7 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            zone_id: selectedZone,
+                            zone_id: 1,
                             deliveries: deliveries.map(d => ({
                                 address: d.address,
                                 latitude: d.latitude,
@@ -716,7 +700,7 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                            zone_id: selectedZone,
+                            zone_id: 1,
                             deliveries: updatedDeliveries.map(d => ({
                                 address: d.address,
                                 latitude: d.latitude,
@@ -762,12 +746,6 @@
                 }
             };
 
-            const selectedZoneData = zones.find(z => z.zone_id === selectedZone);
-            const center = selectedZoneData ? 
-                { lat: selectedZoneData.boundary_coordinates[0].lat, 
-                  lng: selectedZoneData.boundary_coordinates[0].lng } :
-                { lat: 6.9271, lng: 79.8612 };
-
             const urgentCount = deliveries.filter(d => d.priority === 'urgent').length;
             const regularCount = deliveries.filter(d => d.priority === 'regular').length;
 
@@ -786,7 +764,7 @@
                     <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4 shadow-lg">
                         <div className="flex justify-between items-center">
                             <h1 className="text-2xl font-bold">🗺️ Postal Route Optimization System</h1>
-                            {currentConditions && (
+                            {currentConditions && deliveries.length > 0 && (
                                 <div className="flex gap-4 text-sm">
                                     <div className="bg-white/20 px-4 py-2 rounded-lg">
                                         <span className="font-semibold">Traffic:</span> {getTrafficIcon(currentConditions.traffic.level)} {currentConditions.traffic.level}
@@ -795,7 +773,7 @@
                                         <span className="font-semibold">Weather:</span> {getWeatherIcon(currentConditions.weather.condition)} {currentConditions.weather.description}
                                     </div>
                                     <button
-                                        onClick={() => fetchZoneConditions(selectedZone)}
+                                        onClick={fetchRealTimeConditions}
                                         disabled={conditionsLoading}
                                         className="bg-white/20 px-4 py-2 rounded-lg hover:bg-white/30 transition-all disabled:opacity-50"
                                     >
@@ -826,34 +804,41 @@
                                     </div>
                                 )}
 
-                                {/* Zone Selection */}
-                                <div className="bg-white p-4 rounded-lg shadow">
-                                    <label className="block text-sm font-bold mb-2 text-gray-700">
-                                        🗺️ Select Postal Zone
-                                    </label>
-                                    <select 
-                                        className="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none"
-                                        value={selectedZone || ''}
-                                        onChange={(e) => handleZoneSelect(Number(e.target.value))}
-                                    >
-                                        <option value="">Choose a zone...</option>
-                                        {zones.map(zone => (
-                                            <option key={zone.zone_id} value={zone.zone_id}>
-                                                {zone.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    
-                                    {conditionsLoading && selectedZone && (
-                                        <div className="mt-2 text-sm text-blue-600 flex items-center">
-                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                                            Fetching real-time conditions...
+                                {/* CSV Upload */}
+                                {currentView === 'upload' && (
+                                    <div className="bg-white p-4 rounded-lg shadow">
+                                        <label className="block text-sm font-bold mb-2 text-gray-700">
+                                            📄 Upload Mail CSV
+                                        </label>
+                                        <input
+                                            ref={fileInputRef}
+                                            type="file"
+                                            accept=".csv"
+                                            onChange={handleCSVUpload}
+                                            disabled={loading}
+                                            className="hidden"
+                                        />
+                                        <button
+                                            onClick={() => fileInputRef.current.click()}
+                                            disabled={loading}
+                                            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-500 transition-all shadow"
+                                        >
+                                            {loading ? '⏳ Processing...' : '📤 Upload CSV File'}
+                                        </button>
+                                        <div className="mt-3 text-xs text-gray-500 bg-gray-100 p-3 rounded">
+                                            <p className="font-semibold mb-2">Required CSV columns:</p>
+                                            <ul className="list-disc list-inside space-y-1">
+                                                <li>address</li>
+                                                <li>mail_type</li>
+                                                <li>latitude (optional)</li>
+                                                <li>longitude (optional)</li>
+                                            </ul>
                                         </div>
-                                    )}
-                                </div>
+                                    </div>
+                                )}
 
                                 {/* Real-time Conditions Display */}
-                                {currentConditions && selectedZone && (
+                                {currentConditions && deliveries.length > 0 && (
                                     <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-4 rounded-lg shadow border-2 border-blue-200">
                                         <h3 className="font-bold mb-3 text-gray-800 flex items-center">
                                             <span className="mr-2">🌍</span> 
@@ -889,34 +874,8 @@
                                                 </div>
                                             </div>
 
-                                            <div className="text-xs text-gray-500 text-center">
-                                                Last updated: {new Date(currentConditions.timestamp).toLocaleTimeString()}
-                                            </div>
+                                            
                                         </div>
-                                    </div>
-                                )}
-
-                                {/* CSV Upload */}
-                                {selectedZone && currentView === 'upload' && (
-                                    <div className="bg-white p-4 rounded-lg shadow">
-                                        <label className="block text-sm font-bold mb-2 text-gray-700">
-                                            📄 Upload Mail CSV
-                                        </label>
-                                        <input
-                                            ref={fileInputRef}
-                                            type="file"
-                                            accept=".csv"
-                                            onChange={handleCSVUpload}
-                                            disabled={loading}
-                                            className="hidden"
-                                        />
-                                        <button
-                                            onClick={() => fileInputRef.current.click()}
-                                            disabled={loading}
-                                            className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-500 transition-all shadow"
-                                        >
-                                            {loading ? '⏳ Processing...' : '📤 Upload CSV File'}
-                                        </button>
                                     </div>
                                 )}
 
@@ -945,7 +904,7 @@
                                 )}
 
                                 {/* View Mail List Button */}
-                                {deliveries.length > 0 && currentView !== 'mailList' && (
+                                {deliveries.length > 0 && currentView !== 'mailList' && currentView !== 'upload' && (
                                     <button
                                         onClick={() => setCurrentView('mailList')}
                                         className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white py-3 rounded-lg font-semibold hover:from-indigo-600 hover:to-purple-700 transition-all shadow"
@@ -1018,7 +977,6 @@
                                                 onClick={() => {
                                                     setCurrentView('mailList');
                                                     setAllRoutes(null);
-                                                    setComparisonRoutes(null);
                                                 }}
                                                 className="w-full bg-gray-600 text-white py-2 rounded-lg font-semibold hover:bg-gray-700 transition-all"
                                             >
@@ -1230,17 +1188,7 @@
 
                         {/* Main Content Area */}
                         <div className="flex-1 overflow-hidden">
-                            {!selectedZone && (
-                                <div className="flex items-center justify-center h-full bg-gradient-to-br from-gray-100 to-gray-200">
-                                    <div className="text-center p-8 bg-white rounded-lg shadow-xl">
-                                        <div className="text-6xl mb-4">🗺️</div>
-                                        <p className="text-gray-600 text-xl font-semibold mb-2">Select a postal zone to begin</p>
-                                        <p className="text-gray-400 text-sm">Choose from the dropdown menu on the left</p>
-                                    </div>
-                                </div>
-                            )}
-
-                            {selectedZone && currentView === 'upload' && (
+                            {currentView === 'upload' && (
                                 <div className="flex items-center justify-center h-full bg-gradient-to-br from-blue-50 to-indigo-50">
                                     <div className="text-center p-8 bg-white rounded-lg shadow-xl max-w-md">
                                         <div className="text-6xl mb-4">📤</div>
@@ -1259,7 +1207,7 @@
                                 </div>
                             )}
 
-                            {selectedZone && currentView === 'mailList' && (
+                            {currentView === 'mailList' && (
                                 <div className="h-full overflow-y-auto bg-gray-50 p-6">
                                     <div className="max-w-6xl mx-auto">
                                         <h2 className="text-2xl font-bold mb-4 text-gray-800">📋 Mail Classification List</h2>
@@ -1318,11 +1266,11 @@
                                 </div>
                             )}
 
-                            {selectedZone && currentView === 'routes' && allRoutes && (
+                            {currentView === 'routes' && allRoutes && (
                                 <MapView 
                                     deliveries={deliveries}
                                     route={null}
-                                    center={center}
+                                    center={mapCenter}
                                     showRoute={false}
                                     comparisonMode={true}
                                     baselineRoute={allRoutes.results.nearest_neighbor.deliveries.slice(1)}
@@ -1331,11 +1279,11 @@
                                 />
                             )}
 
-                            {selectedZone && currentView === 'relocation' && relocationRoutes && relocationData && (
+                            {currentView === 'relocation' && relocationRoutes && relocationData && (
                                 <MapView 
                                     deliveries={deliveries}
                                     route={null}
-                                    center={center}
+                                    center={mapCenter}
                                     showRoute={false}
                                     comparisonMode={false}
                                     relocationMode={true}
