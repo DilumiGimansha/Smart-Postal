@@ -18,54 +18,8 @@ A comprehensive Machine Learning-powered system for optimizing postal delivery r
 ## 🏗️ System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        FRONTEND LAYER                            │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │   React Application (index.html)                          │  │
-│  │   - CSV Upload & Processing                               │  │
-│  │   - Interactive Maps (Google Maps API)                    │  │
-│  │   - Real-time Monitoring Dashboard                        │  │
-│  │   - Route Visualization & Comparison                      │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-                              ↕ HTTP/REST API
-┌─────────────────────────────────────────────────────────────────┐
-│                        BACKEND LAYER                             │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │   FastAPI Server (main.py)                                │  │
-│  │   - RESTful API Endpoints                                 │  │
-│  │   - Request Validation (Pydantic)                         │  │
-│  │   - Real-time Data Integration                            │  │
-│  │   - Database Operations                                   │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-                              ↕
-┌─────────────────────────────────────────────────────────────────┐
-│                     ML PROCESSING LAYER                          │
-│  ┌────────────────────┐  ┌────────────────────────────────┐    │
-│  │  Model 1:          │  │  Model 2A:                     │    │
-│  │  Priority          │  │  Route Optimization            │    │
-│  │  Classification    │  │  - Q-Learning (RL)             │    │
-│  │  (XGBoost)         │  │  - 2-Opt Local Search          │    │
-│  │                    │  │  - Urgent Priority             │    │
-│  │  14 Features       │  │  - Nearest Neighbor            │    │
-│  └────────────────────┘  └────────────────────────────────┘    │
-│                                                                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  Model 2B: Dynamic Rerouting System                      │   │
-│  │  - Address Change Detection                              │   │
-│  │  - Impact Analysis                                       │   │
-│  │  - Real-time Route Adjustment                            │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-                              ↕
-┌─────────────────────────────────────────────────────────────────┐
-│                      DATA & EXTERNAL APIs                        │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────┐   │
-│  │   MySQL      │  │  Google Maps │  │  OpenWeather API   │   │
-│  │   Database   │  │     API      │  │                    │   │
-│  └──────────────┘  └──────────────┘  └────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+![Alt text](SA.png)
+
 ```
 
 ### Component Details
