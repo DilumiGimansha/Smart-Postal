@@ -985,7 +985,7 @@
                                             <div className="space-y-3">
                                                 <div>
                                                     <label className="block text-sm font-semibold mb-2">
-                                                        Select Customer
+                                                        Select Location
                                                     </label>
                                                     <select
                                                         value={selectedDeliveryId || ''}
@@ -997,7 +997,7 @@
                                                         }}
                                                         className="w-full p-2 border-2 border-green-300 rounded-lg"
                                                     >
-                                                        <option value="">Choose customer...</option>
+                                                        <option value="">Choose location...</option>
                                                         {deliveries.map(d => (
                                                             <option key={d.id} value={d.id}>
                                                                 #{d.id}: {d.address.substring(0, 30)}...
